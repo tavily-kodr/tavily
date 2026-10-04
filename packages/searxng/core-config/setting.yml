@@ -1,0 +1,17 @@
+# Read the documentation before extending the defaults:
+# https://docs.searxng.org/admin/settings/
+
+use_default_settings:
+  engines:
+    keep_only:
+      - google cse
+
+server:
+  secret_key: "${SEARXNG_SECRET}" 
+  limiter: false          # Disable rate limiting for programmatic access
+
+search:
+  formats:
+    - html
+    - json 
+

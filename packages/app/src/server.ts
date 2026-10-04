@@ -1,5 +1,7 @@
 import express from "express";
 
+import searchRoutes from "./routes/search.route.js"
+
 const app = express();
 
 const PORT: number = 3000;
@@ -11,6 +13,8 @@ app.get("/", (req, res) => {
     message: "Server is running "
   });
 });
+
+app.use("/search", searchRoutes );
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
