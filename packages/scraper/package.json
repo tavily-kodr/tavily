@@ -1,0 +1,33 @@
+{
+  "name": "@tavily/scraper",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:smoke": "vitest run --config vitest.smoke.config.ts",
+    "lint": "eslint src test scripts examples",
+    "test:watch": "vitest",
+    "scrape": "tsx src/cli.ts",
+    "measure:timing": "tsx scripts/measure-timing.ts",
+    "measure:site": "tsx scripts/measure-site.ts",
+    "measure:urls": "tsx scripts/measure-urls.ts",
+    "benchmark": "tsx scripts/benchmark.ts"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "p-limit": "^6.2.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  }
+}
