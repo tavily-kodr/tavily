@@ -4,10 +4,18 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "pnpm dev:search && concurrently -k -n scraper,api -c cyan,green \"pnpm dev:scraper\" \"pnpm dev:api\"",
+    "dev:search": "docker compose -f infrastructure/docker-compose.yml up -d",
+    "dev:scraper": "cd packages/scraper && go run ./cmd/server",
+    "dev:api": "cd packages/app && pnpm run dev",
+    "stop:search": "docker compose -f infrastructure/docker-compose.yml down",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.13.1"
+  "packageManager": "pnpm@10.13.1",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
 }

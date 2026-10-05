@@ -2,9 +2,17 @@ import express from "express";
 
 import searchRoutes from "./routes/search.route.js"
 
+// Load .env from the package root (see .env.example). Skipped when absent so the
+// process can be configured purely through real environment variables.
+try {
+  process.loadEnvFile();
+} catch {
+  // no .env file
+}
+
 const app = express();
 
-const PORT: number = 3000;
+const PORT: number = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 

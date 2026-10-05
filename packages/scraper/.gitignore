@@ -1,0 +1,16 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Output
+output/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
