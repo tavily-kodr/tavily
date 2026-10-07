@@ -5,14 +5,12 @@ export function createSearchRouter(controller?: SearchController): Router {
   const router = Router();
   const searchController = controller ?? new SearchController();
 
-  // GET /search?q=... and GET /search (validated in controller)
-  router.get("/", searchController.handleSearch);
-
   // POST /search with JSON body { "query": "..." }
   router.post("/", searchController.handleSearch);
 
-  // Path-style search: GET /search/:query (e.g. GET /search/shariyans)
+  // Path-style search: /search/:query (e.g. GET /search/sheiryans)
   router.get("/:query", searchController.handleSearch);
+  router.post("/:query", searchController.handleSearch);
 
   return router;
 }

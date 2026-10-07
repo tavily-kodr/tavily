@@ -75,21 +75,7 @@ describe("Search API Endpoints", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it("handles GET /search?q=apnacollege with normalized results and took_ms", async () => {
-    const res = await fetch(`${baseUrl}/search?q=apnacollege`);
-    assert.equal(res.status, 200);
-
-    const body = await res.json();
-    assert.equal(body.success, true);
-    assert.equal(body.data.query, "apnacollege");
-    assert.equal(body.data.results.length, 2);
-    assert.equal(body.data.results[0].title, "Apna College");
-    assert.equal(body.data.results[0].url, "https://www.apnacollege.in/");
-    assert.equal(typeof body.data.took_ms, "number");
-    assert(body.data.took_ms >= 0);
-  });
-
-  it("handles POST /search with JSON body", async () => {
+  it("handles POST /search with JSON body and returns normalized results and took_ms", async () => {
     const res = await fetch(`${baseUrl}/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -101,36 +87,39 @@ describe("Search API Endpoints", () => {
     assert.equal(body.success, true);
     assert.equal(body.data.query, "apnacollege");
     assert.equal(body.data.results.length, 2);
-    assert(typeof body.data.took_ms === "number");
+    assert.equal(body.data.results[0].title, "Apna College");
+    assert.equal(body.data.results[0].url, "https://www.apnacollege.in/");
+    assert.equal(typeof body.data.took_ms, "number");
+    assert(body.data.took_ms >= 0);
   });
 
   it("handles path-style GET /search/:query", async () => {
-    const res = await fetch(`${baseUrl}/search/shariyans`);
+    const res = await fetch(`${baseUrl}/search/sheiryans`);
     assert.equal(res.status, 200);
 
     const body = await res.json();
     assert.equal(body.success, true);
-    assert.equal(body.data.query, "shariyans");
+    assert.equal(body.data.query, "sheiryans");
     assert(typeof body.data.took_ms === "number");
   });
 
-  it("returns 400 INVALID_QUERY for missing query in GET", async () => {
-    const res = await fetch(`${baseUrl}/search`);
-    assert.equal(res.status, 400);
+  it("handles path-style POST /search/:query", async () => {
+    const res = await fetch(`${baseUrl}/search/sheiryans`, { method: "POST" });
+    assert.equal(res.status, 200);
 
     const body = await res.json();
-    assert.equal(body.success, false);
-    assert.equal(body.error.code, "INVALID_QUERY");
-    assert.equal(body.error.message, "Search query is required");
+    assert.equal(body.success, true);
+    assert.equal(body.data.query, "sheiryans");
+    assert(typeof body.data.took_ms === "number");
   });
 
-  it("returns 400 INVALID_QUERY for empty query in GET", async () => {
-    const res = await fetch(`${baseUrl}/search?q=   `);
-    assert.equal(res.status, 400);
+  it("returns 404 NOT_FOUND for GET /search without path query", async () => {
+    const res = await fetch(`${baseUrl}/search`);
+    assert.equal(res.status, 404);
 
     const body = await res.json();
     assert.equal(body.success, false);
-    assert.equal(body.error.code, "INVALID_QUERY");
+    assert.equal(body.error.code, "NOT_FOUND");
   });
 
   it("returns 400 INVALID_QUERY for empty body in POST", async () => {
@@ -144,10 +133,28 @@ describe("Search API Endpoints", () => {
     const body = await res.json();
     assert.equal(body.success, false);
     assert.equal(body.error.code, "INVALID_QUERY");
+    assert.equal(body.error.message, "Search query is required");
+  });
+
+  it("returns 400 INVALID_QUERY for empty string query in POST", async () => {
+    const res = await fetch(`${baseUrl}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "   " }),
+    });
+    assert.equal(res.status, 400);
+
+    const body = await res.json();
+    assert.equal(body.success, false);
+    assert.equal(body.error.code, "INVALID_QUERY");
   });
 
   it("returns 503 SEARCH_PROVIDER_UNAVAILABLE on SearXNG failure", async () => {
-    const res = await fetch(`${baseUrl}/search?q=provider-offline`);
+    const res = await fetch(`${baseUrl}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "provider-offline" }),
+    });
     assert.equal(res.status, 503);
 
     const body = await res.json();
@@ -156,7 +163,11 @@ describe("Search API Endpoints", () => {
   });
 
   it("returns 504 SEARCH_TIMEOUT on SearXNG timeout", async () => {
-    const res = await fetch(`${baseUrl}/search?q=provider-timeout`);
+    const res = await fetch(`${baseUrl}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "provider-timeout" }),
+    });
     assert.equal(res.status, 504);
 
     const body = await res.json();
@@ -165,7 +176,11 @@ describe("Search API Endpoints", () => {
   });
 
   it("returns 502 INVALID_SEARCH_RESPONSE on invalid SearXNG payload", async () => {
-    const res = await fetch(`${baseUrl}/search?q=provider-malformed`);
+    const res = await fetch(`${baseUrl}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "provider-malformed" }),
+    });
     assert.equal(res.status, 502);
 
     const body = await res.json();

@@ -19,7 +19,7 @@ The Search API provides a high-performance, structured search endpoint that quer
 
 ```text
 Client
-  │ (GET /search?q=..., POST /search, or GET /search/:query)
+  │ (POST /search with JSON body or GET/POST /search/:query)
   ▼
 Route (search.routes.ts)
   ▼
@@ -84,8 +84,8 @@ Google Search Engine
 
 | Component             | File                                                                                                                                                                                                                           | Responsibility                                                                                                                                                                                                                |
 | :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Route**             | [`search.routes.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/routes/search.routes.ts)                                                                                                                   | Maps incoming HTTP endpoints (`GET /search`, `POST /search`, `GET /search/:query`) to controller actions.                                                                                                                     |
-| **Controller**        | [`search.controller.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/controllers/search.controller.ts)                                                                                                      | Extracts query parameters, coordinates high-resolution timing, calls `SearchService`, emits structured logs via `@tavily/logger`, and formats success and error JSON envelopes.                                               |
+| **Route**             | [`search.routes.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/routes/search.routes.ts)                                                                                                                   | Maps incoming HTTP endpoints (`POST /search`, `GET /search/:query`, `POST /search/:query`) to controller actions.                                                                                                             |
+| **Controller**        | [`search.controller.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/controllers/search.controller.ts)                                                                                                      | Extracts query from request body (`query`) or path parameter (`:query`), coordinates high-resolution timing, calls `SearchService`, emits structured logs via `@tavily/logger`, and formats success and error JSON envelopes. |
 | **Search Service**    | [`search.service.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/services/search.service.ts)                                                                                                               | Encapsulates domain logic: validates search input, calls `SearxngClient`, normalizes raw results, validates and canonicalizes URLs, eliminates duplicates, and caps the list to top 10 items while preserving ranking order.  |
 | **SearXNG Client**    | [`searxng.client.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/clients/searxng.client.ts)                                                                                                                | Manages HTTP communication with the upstream SearXNG service, enforces configurable request timeouts (`AbortSignal.timeout`), handles connection issues, parses JSON, and maps low-level errors into domain `AppError` types. |
 | **Result Normalizer** | [`search.service.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/services/search.service.ts) & [`url-validator.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/utils/url-validator.ts) | Strips unnecessary upstream metadata, validates standard HTTP/HTTPS URL syntax, canonicalizes paths to prevent duplicates, and constructs clean typed outputs.                                                                |
@@ -136,6 +136,9 @@ SEARCH_TIMEOUT_MS=5000
 # Search API Server
 PORT=3000
 NODE_ENV=development
+
+# Search Results
+MAX_RESULTS=10
 ```
 
 ### 3. Start SearXNG via Docker
@@ -143,7 +146,7 @@ NODE_ENV=development
 Start SearXNG and the Valkey caching container using Docker Compose:
 
 ```bash
-docker compose -f infrastructure/docker-compose.yml up -d
+docker compose -f infrastructure/searxng/docker-compose.yml up -d
 ```
 
 Verify that the containers are healthy:
@@ -178,23 +181,25 @@ pnpm --filter @tavily/searching dev
 
 ## API Usage
 
-The Search API exposes three endpoint patterns:
+The Search API provides two convenient endpoint patterns:
 
-### 1. GET `/search?q=<query>`
+### 1. POST `/search` (JSON Body)
 
-Query search via URL query parameter `q`.
+Search via JSON payload containing a `query` string property.
 
-**Request:**
+**Headers:**
 
-```bash
-curl "http://127.0.0.1:3000/search?q=apnacollege"
+- `Content-Type: application/json`
+
+**Request Body:**
+
+```json
+{
+  "query": "best places to visit in India"
+}
 ```
 
-### 2. POST `/search`
-
-Search via JSON payload with `query` property.
-
-**Request:**
+**Request Example:**
 
 ```bash
 curl -X POST "http://127.0.0.1:3000/search" \
@@ -202,14 +207,18 @@ curl -X POST "http://127.0.0.1:3000/search" \
   -d '{"query": "best places to visit in India"}'
 ```
 
-### 3. GET `/search/<query>`
+### 2. Path-Style `/search/<query>` (GET or POST)
 
-Path-based search.
+Search directly by providing the query in the URL path (e.g. `http://localhost:3000/search/sheiryans`). Ideal for browser navigation, links, and quick CLI queries.
 
-**Request:**
+**Request Examples:**
 
 ```bash
-curl "http://127.0.0.1:3000/search/shariyans"
+# In browser or via GET:
+curl "http://127.0.0.1:3000/search/sheiryans"
+
+# Or via POST:
+curl -X POST "http://127.0.0.1:3000/search/sheiryans"
 ```
 
 ---
@@ -320,12 +329,12 @@ The following latency metrics were captured during active local testing against 
 
 #### Observed Query Measurements
 
-| Query                           | Method   | Results Returned | Server `took_ms` | Total Client HTTP Roundtrip | Status |
-| :------------------------------ | :------- | :--------------: | :--------------: | :-------------------------: | :----: |
-| `apnacollege`                   | GET      |        10        |    **477 ms**    |           492 ms            | 200 OK |
-| `best places to visit in India` | POST     |        10        |   **1102 ms**    |           1120 ms           | 200 OK |
-| `shariyans`                     | GET path |        10        |    **421 ms**    |           436 ms            | 200 OK |
-| `apnacollege` (subsequent)      | GET      |        10        |   **4491 ms**    |           4510 ms           | 200 OK |
+| Query                           |  Method  | Results Returned | Server `took_ms` | Total Client HTTP Roundtrip | Status |
+| :------------------------------ | :------: | :--------------: | :--------------: | :-------------------------: | :----: |
+| `best places to visit in India` |   POST   |        10        |   **1102 ms**    |           1120 ms           | 200 OK |
+| `apnacollege`                   |   POST   |        10        |    **477 ms**    |           492 ms            | 200 OK |
+| `sheiryans`                     | GET path |        10        |    **421 ms**    |           436 ms            | 200 OK |
+| `apnacollege` (subsequent)      |   POST   |        10        |   **4491 ms**    |           4510 ms           | 200 OK |
 
 #### Statistical Summary
 
@@ -355,7 +364,7 @@ All errors adhere to the standard Tavily error schema:
 
 | Error Code                    |        HTTP Status        | Trigger Condition                                                                             | Example Message                                              |
 | :---------------------------- | :-----------------------: | :-------------------------------------------------------------------------------------------- | :----------------------------------------------------------- |
-| `INVALID_QUERY`               |     `400 Bad Request`     | Query parameter missing, empty, only whitespace, or non-string in GET/POST.                   | `"Search query is required"`                                 |
+| `INVALID_QUERY`               |     `400 Bad Request`     | Request body missing `query`, or `query` is empty, only whitespace, or non-string.            | `"Search query is required"`                                 |
 | `INVALID_REQUEST`             |     `400 Bad Request`     | Request body contains malformed JSON.                                                         | `"Malformed JSON payload in request body"`                   |
 | `SEARCH_PROVIDER_UNAVAILABLE` | `503 Service Unavailable` | SearXNG instance unreachable (e.g. Docker container stopped, network error, or 5xx response). | `"Search provider is unavailable"`                           |
 | `SEARCH_TIMEOUT`              |   `504 Gateway Timeout`   | SearXNG request exceeds configured timeout (`SEARCH_TIMEOUT_MS`).                             | `"Search provider request timed out"`                        |
@@ -379,7 +388,7 @@ domains/searching/
 │   │   └── search.controller.ts          # HTTP query resolution, timing measurement & logging
 │   ├── routes/
 │   │   ├── index.ts                      # Route module exports
-│   │   └── search.routes.ts              # Express router definitions (/search, /search/:query)
+│   │   └── search.routes.ts              # Express router definition (POST /search, /search/:query)
 │   ├── services/
 │   │   ├── index.ts                      # Service module exports
 │   │   └── search.service.ts             # Normalization, URL validation, deduplication, top 10
@@ -411,7 +420,7 @@ domains/searching/
 
 1. Start SearXNG:
    ```bash
-   docker compose -f infrastructure/docker-compose.yml up -d
+   docker compose -f infrastructure/searxng/docker-compose.yml up -d
    ```
 2. Start the Search API dev server:
    ```bash

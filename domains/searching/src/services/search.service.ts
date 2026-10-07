@@ -2,6 +2,7 @@ import { AppError } from "@tavily/errors";
 import { SearxngClient } from "../clients/searxng.client.js";
 import { isValidUrl, canonicalizeUrl } from "../utils/url-validator.js";
 import type { NormalizedSearchResult } from "../types/search.types.js";
+import { getSearchConfig } from "../config.js";
 
 export interface SearchServiceOptions {
   client?: SearxngClient;
@@ -19,7 +20,7 @@ export class SearchService {
 
   constructor(options: SearchServiceOptions = {}) {
     this.client = options.client ?? new SearxngClient();
-    this.maxResults = options.maxResults ?? 10;
+    this.maxResults = options.maxResults ?? getSearchConfig().maxResults;
   }
 
   async search(rawQuery: unknown): Promise<SearchExecutionResult> {

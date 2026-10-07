@@ -141,12 +141,32 @@ describe("SearchService", () => {
       results: fifteenResults,
     };
 
-    const service = new SearchService({ client: createMockClient(mockResponse) });
+    const service = new SearchService({ client: createMockClient(mockResponse), maxResults: 10 });
     const output = await service.search("many results");
 
     assert.equal(output.results.length, 10);
     assert.equal(output.results[0]?.title, "Result 1");
     assert.equal(output.results[9]?.title, "Result 10");
+  });
+
+  it("caps results according to configured maxResults", async () => {
+    const fifteenResults = Array.from({ length: 15 }, (_, i) => ({
+      title: `Result ${i + 1}`,
+      url: `https://example.com/page/${i + 1}`,
+      content: `Description for ${i + 1}`,
+      score: 10 - i * 0.5,
+    }));
+
+    const mockResponse: SearxngRawResponse = {
+      results: fifteenResults,
+    };
+
+    const service = new SearchService({ client: createMockClient(mockResponse), maxResults: 5 });
+    const output = await service.search("capped results");
+
+    assert.equal(output.results.length, 5);
+    assert.equal(output.results[0]?.title, "Result 1");
+    assert.equal(output.results[4]?.title, "Result 5");
   });
 
   it("handles empty results array without error", async () => {

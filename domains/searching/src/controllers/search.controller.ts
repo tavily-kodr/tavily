@@ -19,12 +19,8 @@ export class SearchController {
     const startTime = startTimer();
     let queryCandidate: string | undefined;
 
-    // 1. Query parameter ?q=
-    if (typeof req.query.q === "string") {
-      queryCandidate = req.query.q;
-    }
-    // 2. Request body { "query": "..." }
-    else if (
+    // 1. Request body { "query": "..." }
+    if (
       req.body &&
       typeof req.body === "object" &&
       "query" in req.body &&
@@ -32,7 +28,7 @@ export class SearchController {
     ) {
       queryCandidate = req.body.query;
     }
-    // 3. Path parameter /search/:query
+    // 2. Path parameter /search/:query
     else if (typeof req.params.query === "string") {
       queryCandidate = req.params.query;
     }
