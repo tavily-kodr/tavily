@@ -1,0 +1,12 @@
+# SearXNG settings - see https://docs.searxng.org/admin/settings/
+
+use_default_settings: true
+
+server:
+  secret_key: "tavily-searxng-change-me-in-production"
+  image_proxy: true
+
+search:
+  formats:
+    - html
+    - json

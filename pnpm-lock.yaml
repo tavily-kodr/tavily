@@ -247,6 +247,25 @@ importers:
         specifier: ^8.71.0
         version: 8.71.0(eslint@10.12.0(jiti@2.7.0))(typescript@6.0.3)
 
+  domains/searching:
+    dependencies:
+      "@tavily/config":
+        specifier: workspace:*
+        version: link:../../packages/config
+      "@tavily/errors":
+        specifier: workspace:*
+        version: link:../../packages/errors
+      "@tavily/logger":
+        specifier: workspace:*
+        version: link:../../packages/logger
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      "@types/node":
+        specifier: ^26.6.4
+        version: 26.6.4
+
   packages/config:
     dependencies:
       zod:
