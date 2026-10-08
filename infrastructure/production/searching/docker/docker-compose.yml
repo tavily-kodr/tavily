@@ -1,0 +1,24 @@
+name: searching-production
+
+services:
+  searxng:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tavily-searxng:2026.10.7-6671d89be
+    ports:
+      # Bound to loopback by default: the limiter is disabled, so SearXNG must not
+      # be publicly exposed. Override SEARXNG_BIND to change the host interface.
+      - "${SEARXNG_BIND:-127.0.0.1}:${SEARXNG_PORT:-8080}:8080"
+    environment:
+      - BASE_URL=${SEARXNG_BASE_URL:?SEARXNG_BASE_URL must be set}
+      - INSTANCE_NAME=tavily-clone-searxng
+      - SEARXNG_SECRET=${SEARXNG_SECRET:?SEARXNG_SECRET must be set}
+      - SEARXNG_LIMITER=false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s

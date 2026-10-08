@@ -1,3 +1,5 @@
+name: searching-local
+
 services:
   searxng:
     image: searxng/searxng:2026.10.7-6671d89be
@@ -5,14 +7,14 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./searxng-config:/etc/searxng
+      - ./searxng:/etc/searxng
     environment:
       - BASE_URL=http://localhost:8080/
       - INSTANCE_NAME=tavily-clone-searxng
       - SEARXNG_SECRET=${SEARXNG_SECRET:-}
       - SEARXNG_LIMITER=false
     env_file:
-      - path: ../../.env
+      - path: ../../../../.env
         required: false
     restart: unless-stopped
     healthcheck:
