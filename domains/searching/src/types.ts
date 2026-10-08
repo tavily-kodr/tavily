@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 // Supported SearXNG categories
 export type SearchCategory =
   | "general"
@@ -54,33 +56,38 @@ export interface SearchResponse {
 }
 
 // Raw response format returned by SearXNG JSON API
-export interface SearXNGRawResponse {
-  query: string;
-  number_of_results: number;
-  results: SearXNGRawResult[];
-  answers: string[];
-  corrections: string[];
-  infoboxes: SearXNGInfobox[];
-  suggestions: string[];
-  unresponsive_engines: [string, string][];
-}
+export const searxngRawResultSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  content: z.string(),
+  engines: z.array(z.string()),
+  score: z.number(),
+  category: z.string(),
+  parsed_url: z.tuple([z.string(), z.string(), z.string(), z.string(), z.string(), z.string()]).optional(),
+  thumbnail: z.string().optional(),
+  publishedDate: z.string().optional(),
+});
 
-export interface SearXNGRawResult {
-  title: string;
-  url: string;
-  content: string;
-  engines: string[];
-  score: number;
-  category: string;
-  parsed_url?: [string, string, string, string, string, string];
-  thumbnail?: string;
-  publishedDate?: string;
-}
+export const searxngInfoboxSchema = z.object({
+  infobox: z.string(),
+  id: z.string(),
+  content: z.string(),
+  urls: z.array(z.object({ title: z.string(), url: z.string() })),
+  engine: z.string(),
+});
 
-export interface SearXNGInfobox {
-  infobox: string;
-  id: string;
-  content: string;
-  urls: { title: string; url: string }[];
-  engine: string;
-}
+export const searxngRawResponseSchema = z.object({
+  query: z.string(),
+  number_of_results: z.number(),
+  results: z.array(searxngRawResultSchema),
+  answers: z.array(z.string()),
+  corrections: z.array(z.string()),
+  infoboxes: z.array(searxngInfoboxSchema),
+  suggestions: z.array(z.string()),
+  unresponsive_engines: z.array(z.tuple([z.string(), z.string()])),
+});
+
+export type SearXNGRawResponse = z.infer<typeof searxngRawResponseSchema>;
+export type SearXNGRawResult = z.infer<typeof searxngRawResultSchema>;
+export type SearXNGInfobox = z.infer<typeof searxngInfoboxSchema>;
+

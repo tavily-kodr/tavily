@@ -50,19 +50,27 @@ export async function search(query: string, options: SearchOptions = {}): Promis
     });
   }
 
+  const maxResults = options.maxResults ?? 10;
+  if (!Number.isInteger(maxResults) || maxResults < 1) {
+    throw new AppError("maxResults must be a positive integer", {
+      code: "SEARCH_INVALID_MAX_RESULTS",
+      statusCode: 400,
+      details: { maxResults },
+    });
+  }
+
   const startTime = performance.now();
   const refinedQuery = refineQuery(query);
 
   logger.info("Executing search", {
-    originalQuery: query,
-    refinedQuery,
-    options,
+    queryLength: query.trim().length,
+    refinedQueryLength: refinedQuery.length,
+    options: { ...options, maxResults },
   });
 
   const client = getClient();
   const rawResponse = await client.search(refinedQuery, options);
 
-  const maxResults = options.maxResults ?? 10;
   const mappedResults = rawResponse.results.slice(0, maxResults).map(mapResult);
   const searchTimeMs = Math.round(performance.now() - startTime);
 
@@ -77,7 +85,6 @@ export async function search(query: string, options: SearchOptions = {}): Promis
   };
 
   logger.info("Search completed", {
-    query: refinedQuery,
     resultCount: mappedResults.length,
     totalAvailable: rawResponse.results.length,
     searchTimeMs,

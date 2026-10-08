@@ -1,6 +1,6 @@
 services:
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2024.12.26-7578e6c8b
     container_name: tavily-searxng
     ports:
       - "${SEARXNG_PORT:-8080}:8080"

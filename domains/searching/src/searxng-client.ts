@@ -1,6 +1,7 @@
 import { logger } from "@tavily/logger";
 import { AppError } from "@tavily/errors";
-import type { SearXNGRawResponse, SearchOptions } from "./types.js";
+import type { SearchOptions } from "./types.js";
+import { type SearXNGRawResponse, searxngRawResponseSchema } from "./types.js";
 import type { SearXNGEnv } from "./config.js";
 
 // HTTP client for communicating with the SearXNG instance
@@ -117,7 +118,7 @@ export class SearXNGClient {
       }
 
       const data: unknown = await response.json();
-      return data as SearXNGRawResponse;
+      return this.parseResponse(data, url);
     } catch (error) {
       if (error instanceof AppError) {
         throw error;
@@ -140,6 +141,25 @@ export class SearXNGClient {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  // Validates raw JSON against the expected SearXNG response schema
+  private parseResponse(data: unknown, url: string): SearXNGRawResponse {
+    const result = searxngRawResponseSchema.safeParse(data);
+    if (!result.success) {
+      throw new AppError("SearXNG returned an invalid response", {
+        code: "SEARXNG_INVALID_RESPONSE",
+        statusCode: 502,
+        details: {
+          url,
+          validationErrors: result.error.issues.map((i) => ({
+            path: i.path.join("."),
+            message: i.message,
+          })),
+        },
+      });
+    }
+    return result.data;
   }
 
   private isRetryable(error: AppError): boolean {
