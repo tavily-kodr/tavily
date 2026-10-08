@@ -5,3 +5,4 @@ dist
 build
 coverage
 *.log
+pnpm-lock.yaml

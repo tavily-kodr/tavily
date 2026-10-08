@@ -177,6 +177,100 @@ For live development with auto-reload:
 pnpm --filter @tavily/searching dev
 ```
 
+### 5. Docker Setup and Execution
+
+The repository maintains an intentional separation between **production infrastructure** and **domain local development**:
+
+- `infrastructure/` — Production infrastructure configs (must not be modified for local domain development).
+- `domains/searching/src/docker/` — Independent Searching domain Docker setup for local development and testing.
+- `infrastructure/searxng/` — Shared SearXNG service consumed via `SEARXNG_URL` (intentionally separate).
+
+#### A. Searching Domain Local Development
+
+The domain-local Docker setup is located under `domains/searching/src/docker/`. It uses `Dockerfile.dev` with live reload (`tsx watch src/server.ts`) and mounts domain source directories for active development.
+
+1. **Start SearXNG** (using existing infrastructure):
+
+   ```bash
+   docker compose -f infrastructure/searxng/docker-compose.yml up -d
+   ```
+
+2. **Start the Searching domain container**:
+
+   ```bash
+   docker compose -f domains/searching/src/docker/docker-compose.yml up -d
+   ```
+
+3. **Check container status**:
+
+   ```bash
+   docker ps
+   ```
+
+4. **View Searching container logs**:
+
+   ```bash
+   docker compose -f domains/searching/src/docker/docker-compose.yml logs -f
+   ```
+
+5. **Verify the Searching API**:
+
+   ```bash
+   curl -s http://127.0.0.1:3000/health
+   ```
+
+   Or execute a test search query:
+
+   ```bash
+   curl -X POST http://127.0.0.1:3000/search \
+     -H "Content-Type: application/json" \
+     -d '{"query": "antigravity"}'
+   ```
+
+6. **Rebuild after dependency or Dockerfile changes**:
+
+   ```bash
+   docker compose -f domains/searching/src/docker/docker-compose.yml build
+   docker compose -f domains/searching/src/docker/docker-compose.yml up -d
+   ```
+
+7. **Stop the Searching domain container**:
+
+   ```bash
+   docker compose -f domains/searching/src/docker/docker-compose.yml down
+   ```
+
+8. **Stop SearXNG** (when finished):
+   ```bash
+   docker compose -f infrastructure/searxng/docker-compose.yml down
+   ```
+
+#### B. Production Infrastructure
+
+Production infrastructure lives under `infrastructure/searching/docker/` and must not be modified for local domain development.
+
+- **Build production image**:
+
+  ```bash
+  docker build -f infrastructure/searching/docker/Dockerfile -t tavily-searching:latest .
+  ```
+
+- **Run production image**:
+
+  ```bash
+  docker run -d --name tavily-searching-prod -p 3000:3000 \
+    -e PORT=3000 \
+    -e NODE_ENV=production \
+    -e SEARXNG_URL=http://host.docker.internal:8080 \
+    --add-host host.docker.internal:host-gateway \
+    tavily-searching:latest
+  ```
+
+- **Production Compose configuration** (inspect / validate):
+  ```bash
+  docker compose -f infrastructure/searching/docker/docker-compose.yml config
+  ```
+
 ---
 
 ## API Usage
