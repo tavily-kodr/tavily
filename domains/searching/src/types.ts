@@ -26,6 +26,12 @@ export interface FailedEngine {
   reason: string;
 }
 
+// A SearXNG result page that could not be fetched; reason is e.g. "timeout".
+export interface FailedPage {
+  page: number;
+  reason: string;
+}
+
 export interface SearchResponseItem {
   title: string;
   url: string;
@@ -42,6 +48,7 @@ export interface SearchResponse {
   response_time: number;
   partial: boolean;
   failedEngines: FailedEngine[];
+  failedPages: FailedPage[];
   // false when every result failed the quality checks and the unfiltered
   // results are returned ranked by engine score only.
   filtered: boolean;
@@ -64,6 +71,16 @@ export interface SearchOptions {
   excludeDomains?: readonly string[] | undefined;
   timeRange?: TimeRange | undefined;
   topic?: SearchTopic | undefined;
+  // Most SearXNG pages one search may fetch (1..20). Pages after the first are
+  // fetched only while too few good results have been found.
+  maxPages?: number | undefined;
+  // Pages sent together with page 1 when maxResults is more than one page
+  // holds (0..3, default 0). Saves the round trips of fetching them after it.
+  eagerPages?: number | undefined;
+  // Optional pages start only if they can finish within this many ms of the
+  // search start (default and maximum: SEARCH_BUDGET_MS). Lower trades
+  // results on sparse queries (domain filters) for latency.
+  pagingBudgetMs?: number | undefined;
 }
 
 // Shape of a single result item as returned by SearXNG's JSON API.

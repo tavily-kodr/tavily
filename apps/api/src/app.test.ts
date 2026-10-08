@@ -56,6 +56,7 @@ describe("API endpoints", () => {
         cached: false,
         partial: true,
         failedEngines: [{ engine: "brave", reason: "timeout" }],
+        failedPages: [{ page: 2, reason: "timeout" }],
         filtered: false,
         enginesUsed: ["bing", "duckduckgo"],
       });
@@ -77,6 +78,7 @@ describe("API endpoints", () => {
         response_time: expect.any(Number),
         partial: true,
         failedEngines: [{ engine: "brave", reason: "timeout" }],
+        failedPages: [{ page: 2, reason: "timeout" }],
         filtered: false,
         enginesUsed: ["bing", "duckduckgo"],
         cached: false,
@@ -100,6 +102,7 @@ describe("API endpoints", () => {
         cached: false,
         partial: false,
         failedEngines: [],
+        failedPages: [],
         filtered: true,
         enginesUsed: [],
       });
@@ -112,7 +115,7 @@ describe("API endpoints", () => {
       expect(res.body.results).toEqual([]);
       expect(spy).toHaveBeenCalledWith(
         "test",
-        10,
+        20,
         expect.objectContaining({
           includeDomains: ["a.com", "b.org", "c.net"],
           excludeDomains: ["bad.com"],
@@ -120,6 +123,35 @@ describe("API endpoints", () => {
           topic: "news",
         }),
       );
+    });
+
+    it("gzips large JSON responses when the client accepts gzip", async () => {
+      const results = Array.from({ length: 20 }, (_, i) => ({
+        title: `Result ${i}`,
+        url: `https://example${i}.com`,
+        snippet: "A reasonably long snippet so the body is worth compressing.",
+        score: 1 - i / 20,
+      }));
+      const mock = {
+        results,
+        cached: true,
+        partial: false,
+        failedEngines: [],
+        failedPages: [],
+        filtered: true,
+        enginesUsed: ["bing"],
+      };
+      vi.spyOn(searchingDomain, "webSearch").mockResolvedValue(mock);
+
+      const gzipped = await request(app).get("/search?q=test").set("Accept-Encoding", "gzip");
+      expect(gzipped.status).toBe(200);
+      expect(gzipped.headers["content-encoding"]).toBe("gzip");
+      expect(gzipped.headers["content-type"]).toMatch(/application\/json/);
+      expect(gzipped.body.results).toHaveLength(20);
+
+      const plain = await request(app).get("/search?q=test").set("Accept-Encoding", "identity");
+      expect(plain.headers["content-encoding"]).toBeUndefined();
+      expect(plain.body.results).toEqual(gzipped.body.results);
     });
 
     it.each([

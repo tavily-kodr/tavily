@@ -111,9 +111,11 @@ export function fuseResults(candidates: RankCandidate[], k: number = RRF_K): Fus
 
 /** Fraction (0..1) of distinct query terms that appear in `text`. */
 export function keywordOverlap(queryTerms: readonly string[], text: string): number {
-  const terms = new Set(queryTerms);
+  return overlapOf(new Set(queryTerms), new Set(tokenize(text)));
+}
+
+function overlapOf(terms: ReadonlySet<string>, tokens: ReadonlySet<string>): number {
   if (terms.size === 0) return 0;
-  const tokens = new Set(tokenize(text));
   let hits = 0;
   for (const term of terms) {
     if (tokens.has(term)) hits++;
@@ -183,16 +185,20 @@ export function rankResults(
 ): RankOutcome {
   if (results.length === 0) return { results: [], filtered: true };
 
-  const queryTerms = meaningfulTerms(query);
-  const useOverlap = queryTerms.length > 0;
+  // The query is tokenized once; each result's title + content once, below.
+  const queryTerms = new Set(meaningfulTerms(query));
+  const useOverlap = queryTerms.size > 0;
   const boost = isDefinitionalQuery(query);
-  const maxRrf = Math.max(...results.map((r) => r.rrfScore));
+  let maxRrf = 0;
+  for (const r of results) if (r.rrfScore > maxRrf) maxRrf = r.rrfScore;
 
   const scored = results.map((r) => {
     const hasContent = r.snippet.trim() !== "";
     // Missing content falls back to the title for matching and display.
     const content = hasContent ? r.snippet : r.title;
-    const overlap = useOverlap ? keywordOverlap(queryTerms, `${r.title} ${content}`) : 1;
+    const overlap = useOverlap
+      ? overlapOf(queryTerms, new Set(tokenize(`${r.title} ${content}`)))
+      : 1;
     const latinTitle = !options.englishOnly || !NON_LATIN_LETTER.test(r.title);
     const passes = overlap > 0 && hasContent && latinTitle;
 
@@ -248,7 +254,8 @@ function toRanked(r: FusedResult, snippet: string, score: number): RankedResult 
 /** Divides every score by the maximum so the top result scores 1. */
 export function normalizeScores(results: RankedResult[]): RankedResult[] {
   if (results.length === 0) return [];
-  const max = Math.max(...results.map((r) => r.score));
+  let max = -Infinity;
+  for (const r of results) if (r.score > max) max = r.score;
   if (max <= 0) return results.map((r) => ({ ...r, score: 0 }));
   return results.map((r) => ({ ...r, score: r.score / max }));
 }

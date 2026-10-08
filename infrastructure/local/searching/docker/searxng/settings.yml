@@ -1,4 +1,19 @@
-use_default_settings: true
+use_default_settings:
+  engines:
+    # Only fast engines; every other default engine (google, qwant, duckduckgo, startpage,
+    # reuters, translators, ...) is removed. google answers "access denied" and
+    # qwant a CAPTCHA from this host; duckduckgo timed out on every query. The news variants keep topic=news working
+    # with the same providers. yahoo is disabled upstream and enabled below so a
+    # query still reaches 20 results when one engine is suspended.
+    keep_only:
+      - bing
+      - bing news
+      - brave
+      - brave.news
+      - duckduckgo news
+      - mojeek
+      - wikipedia
+      - yahoo
 
 general:
   instance_name: "tavily-clone-searxng"
@@ -9,6 +24,8 @@ general:
 
 server:
   # secret_key is intentionally not set here; provide it via the SEARXNG_SECRET env var.
+  # The limiter (and the bot detection it runs) stays off: SearXNG is bound to
+  # loopback / the internal network and only the API calls it.
   limiter: false
   image_proxy: false
 
@@ -18,31 +35,33 @@ search:
   formats:
     - html # return html search page
     - json # return structred json
+  # Shorter than the upstream defaults for CAPTCHA / Cloudflare / reCAPTCHA
+  # (1h, 1 day, 15 days, 7 days) so a blocked engine comes back sooner.
+  # Access-denied and 429 keep the upstream 180s; going lower raises ban risk.
+  suspended_times:
+    SearxEngineAccessDenied: 180
+    SearxEngineCaptcha: 1800
+    SearxEngineTooManyRequests: 180
+    cf_SearxEngineCaptcha: 3600
+    cf_SearxEngineAccessDenied: 3600
+    recaptcha_SearxEngineCaptcha: 3600
 
 outgoing: # outgoing controll external search engines like google bing .
+  # SearXNG answers with whatever engines delivered by the deadline instead of
+  # waiting for the slowest one.
   request_timeout: 3.0
-  max_request_timeout: 5.0
+  max_request_timeout: 4.0
   pool_connections: 100 #Number of connection pools maintained.
   pool_maxsize: 20 # max connection in pool
   enable_http2: true # HTTP/2 can improve network efficiency because multiple requests can be handled over a connection.
 
 engines: # which engines you want to explore
   # All active engines use the same weight so no single engine dominates the merged ranking.
-  - name: google
-    disabled: true
-
-  - name: google cse
-    disabled: true
-
   - name: bing
     disabled: false
     weight: 1.0
 
   - name: brave
-    disabled: true
-    weight: 1.0
-
-  - name: duckduckgo
     disabled: false
     weight: 1.0
 
@@ -50,23 +69,12 @@ engines: # which engines you want to explore
     disabled: false
     weight: 1.0
 
-  # mojeek is marked inactive upstream in this SearXNG version (it needs a heavy
-  # Proof-of-Work captcha), so this entry has no effect until upstream re-activates it.
-  - name: mojeek
-    disabled: true
-    weight: 1.0
-
-  # qwant exists in this SearXNG version and is disabled by default.
-  - name: qwant
-    disabled: true
-    weight: 1.0
-
-  # startpage is also inactive upstream here (Proof-of-Work captcha), so it is not enabled.
-  - name: startpage
-    disabled: true
-
-  - name: wikidata
-    disabled: true
-
   - name: yahoo
-    disabled: true
+    disabled: false
+    weight: 1.0
+
+  # mojeek may be marked inactive upstream in this SearXNG version (it needs a
+  # Proof-of-Work captcha); if so this entry has no effect until upstream re-activates it.
+  - name: mojeek
+    disabled: false
+    weight: 1.0

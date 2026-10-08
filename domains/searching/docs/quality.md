@@ -39,5 +39,6 @@ English searches a filter that drops empty content and non-Latin-script titles.
   result, including mixed titles such as "Python (программирование)".
 - **Ambiguous queries** ("jaguar", "apple") are ranked by agreement and overlap only; there is no
   intent disambiguation.
-- **Partial responses are not cached**, so a flaky engine increases load and latency.
+- **Partial responses are cached for at most 2 minutes**, so a flaky engine still causes more
+  SearXNG traffic than a healthy one.
 - **Cache is per process** and resets on restart.

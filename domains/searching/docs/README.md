@@ -106,7 +106,7 @@ Executes a web search query and returns ranked, deduplicated search results.
 | Parameter         | Type                   | Required | Default     | Allowed Values / Constraints            | Description                                                                                                                    |
 | :---------------- | :--------------------- | :------- | :---------- | :-------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------- |
 | `q`               | `string`               | **Yes**  | —           | Non-empty trimmed string                | The search query text.                                                                                                         |
-| `max_results`     | `number`               | No       | `10`        | Integer between `1` and `20`            | Maximum number of results to return.                                                                                           |
+| `max_results`     | `number`               | No       | `20`        | Integer between `1` and `20`            | Maximum number of results to return.                                                                                           |
 | `include_domains` | `string` \| `string[]` | No       | `[]`        | Up to 50 valid domain strings           | Restricts search results to specified domains or their subdomains. Supports comma-separated list or repeated query parameters. |
 | `exclude_domains` | `string` \| `string[]` | No       | `[]`        | Up to 50 valid domain strings           | Drops search results from specified domains or their subdomains. Supports comma-separated list or repeated query parameters.   |
 | `time_range`      | `string`               | No       | `undefined` | `"day"`, `"week"`, `"month"`, `"year"`  | Filters results by publication/discovery timeframe.                                                                            |
@@ -176,15 +176,18 @@ curl "http://localhost:3000/search?q=typescript+generics&max_results=5&topic=gen
 
 The search execution pipeline in [`webSearch`](../src/search/search-service.ts) executes the following sequential steps:
 
-1. **Input Validation**: Validates non-empty query string and positive `maxResults`.
+1. **Input Validation**: Validates non-empty query string and `maxResults` between 1 and 20.
 2. **Cache Key Generation & Lookup**:
-   - Evaluates compound cache key: `[query, maxResults, language, topic, timeRange, sortedIncludeDomains, sortedExcludeDomains]`.
-   - Checks the in-memory [`TtlCache`](../src/cache/cache.ts) (5-minute TTL). Returns immediately if hit.
-3. **Parallel Multi-Page Upstream Fetch**:
-   - Sends concurrent HTTP GET requests to SearXNG for page 1 and page 2 using persistent HTTP/HTTPS agents (`keepAlive: true`) with a 3000ms timeout per page.
-   - Tolerates single-page failures if at least one page succeeds.
+   - Evaluates compound cache key: `[normalizedQuery, language, topic, timeRange, sortedIncludeDomains, sortedExcludeDomains]`. `maxResults` is not part of the key: each entry holds the full ranked pool (up to 20) and every request slices it, so `max_results=5` and `20` share one entry.
+   - Checks the in-memory [`TtlCache`](../src/cache/cache.ts) (TTL `SEARCH_CACHE_TTL_MS`, default 30 minutes; at most `SEARCH_CACHE_MAX_ENTRIES` entries, default 1000, least recently used evicted). A hit returns immediately; an expired entry is served stale while a background refresh runs.
+   - Concurrent identical searches share one in-flight SearXNG request.
+3. **Controlled Multi-Page Upstream Fetch**:
+   - Every SearXNG request sends `timeout_limit` (3s for page 1, 2s for later pages) and gets a client deadline 750ms longer, so SearXNG always answers with the engines that did respond before the client gives up. Each request has its own `AbortSignal`, created only once the request is sent.
+   - At most `SEARXNG_MAX_CONCURRENCY` requests (default 4, matching the 4 Granian threads of the pinned image) are in flight across all searches; the rest wait in a FIFO queue in the API, not inside SearXNG.
+   - Further pages are fetched only while fewer than `max_results` results pass the quality checks after dedupe, filtering and ranking: page 2 alone as a probe, then 2 pages at a time, up to `SEARXNG_MAX_PAGES` (default and maximum 20). Paging stops when a batch brings no new URLs, when every page of a batch failed, or when the 8s search budget cannot fit another page.
+   - Failed later pages are never retried; they are listed in `failedPages` and make the response `partial`.
 4. **Upstream Retry**:
-   - If both pages fail on the first attempt (connection reset, timeout, 5xx), retries the page requests once before raising an error.
+   - If page 1 fails (connection reset, timeout, cancellation, 5xx, invalid body), it is retried once, unless SearXNG answered 4xx or the retry cannot finish inside the search budget. Only when page 1 fails on every attempt does the search return `502 SEARXNG_UNAVAILABLE`.
 5. **Engine Attribution & Failure Tracking**:
    - Inspects `unresponsive_engines` from SearXNG responses to populate `failedEngines`.
    - If zero results return and all expected engines (`SEARXNG_ENGINES`) are unresponsive, raises a structured `503 ALL_ENGINES_FAILED` error.
@@ -208,8 +211,8 @@ The search execution pipeline in [`webSearch`](../src/search/search-service.ts) 
    - Failing candidates are appended as backfill with `lowConfidence: true`, capped so scores do not exceed the passing threshold floor.
    - If zero candidates pass quality checks, returns all candidates ranked by raw RRF score with `filtered: false`.
 10. **Slicing & Cache Storage**:
-    - Slices ranked array to requested `max_results`.
-    - Stores complete, non-empty, non-partial responses in the TTL cache.
+    - Stores the ranked pool (up to 20) in the cache: never empty or failed responses; partial ones for at most 2 minutes.
+    - Slices the pool to the requested `max_results`.
 
 ---
 
@@ -259,12 +262,16 @@ Engines with aggressive CAPTCHA or blocking policies (Google, Yahoo, Qwant, Star
 
 Environment variables are validated on startup via `@tavily/config` Zod schemas.
 
-| Variable          | Scope          | Required        | Default                                  | Description                                                                              |
-| :---------------- | :------------- | :-------------- | :--------------------------------------- | :--------------------------------------------------------------------------------------- |
-| `PORT`            | API Server     | No              | `3000`                                   | Port on which the Express API server listens.                                            |
-| `SEARXNG_URL`     | Search Client  | No              | `http://localhost:8080`                  | URL of the upstream SearXNG service instance.                                            |
-| `SEARXNG_ENGINES` | Search Client  | No              | `bing,duckduckgo,brave,mojeek,wikipedia` | Comma-separated list of expected engines. Used to detect total engine outage conditions. |
-| `SEARXNG_SECRET`  | SearXNG Docker | Production only | `""`                                     | Secret key used by SearXNG for internal cookie/session encryption.                       |
+| Variable                   | Scope          | Required        | Default                                  | Description                                                                               |
+| :------------------------- | :------------- | :-------------- | :--------------------------------------- | :---------------------------------------------------------------------------------------- |
+| `PORT`                     | API Server     | No              | `3000`                                   | Port on which the Express API server listens.                                             |
+| `SEARXNG_URL`              | Search Client  | No              | `http://localhost:8080`                  | URL of the upstream SearXNG service instance.                                             |
+| `SEARXNG_ENGINES`          | Search Client  | No              | `bing,duckduckgo,brave,mojeek,wikipedia` | Comma-separated list of expected engines. Used to detect total engine outage conditions.  |
+| `SEARXNG_MAX_CONCURRENCY`  | Search Client  | No              | `4`                                      | SearXNG requests in flight at once across all searches. Set to SearXNG workers x threads. |
+| `SEARXNG_MAX_PAGES`        | Search Client  | No              | `20`                                     | Most SearXNG pages one search may fetch (1-20); later pages only when needed.             |
+| `SEARCH_CACHE_TTL_MS`      | Search Client  | No              | `1800000`                                | Result cache TTL; expired entries are served stale while refreshing.                      |
+| `SEARCH_CACHE_MAX_ENTRIES` | Search Client  | No              | `1000`                                   | Result cache size; least recently used entries are evicted.                               |
+| `SEARXNG_SECRET`           | SearXNG Docker | Production only | `""`                                     | Secret key used by SearXNG for internal cookie/session encryption.                        |
 
 See `.env.example` in the project root for reference.
 
@@ -386,11 +393,11 @@ All domain and API exceptions follow structured representations using [`AppError
    - _Rationale_: Isolates ranking mathematics, fusion algorithms, caching, and upstream HTTP communication from Express route handling. Enables independent testing, profiling, and potential reuse in background jobs or CLI tooling.
 3. **Reciprocal Rank Fusion (RRF with $k=60$)**:
    - _Rationale_: Different engines report raw scores on incomparable scales. RRF standardizes rank positions, ensuring URLs verified by multiple distinct engines naturally outrank URLs surfaced by only one engine.
-4. **Two-Page Parallel Over-Fetching**:
-   - _Rationale_: Fetching pages 1 and 2 concurrently introduces negligible latency overhead due to keep-alive connection reuse, while substantially broadening candidate recall prior to deduplication, filtering, and scoring.
+4. **Lazy, Bounded Paging**:
+   - _Rationale_: Later pages broaden recall when page 1 is short of good results (for example with `include_domains`), but every page is another fan-out to all engines (and ban risk), so pages are fetched only when needed, in small batches, behind a global concurrency limit.
 5. **Soft Quality Penalties with Backfill**:
    - _Rationale_: Hard-dropping results that lack snippets or query overlap can leave sparse results for niche or exploratory queries. Penalizing candidates and flagging them as `lowConfidence` guarantees the user receives `max_results` whenever candidates exist, while preserving strict relevance order.
-6. **In-Memory TTL Caching (5 Minutes)**:
+6. **In-Memory TTL Caching (30 Minutes, Bounded LRU)**:
    - _Rationale_: Search queries follow power-law distribution curves. Caching repeat queries eliminates redundant multi-engine upstream requests, protecting SearXNG from IP rate limits.
 
 ---
@@ -400,7 +407,6 @@ All domain and API exceptions follow structured representations using [`AppError
 - **Process-Local Memory Cache**: The TTL cache is held in process heap memory. It is not shared across multi-instance API deployments and resets on process restart.
 - **Lexical Overlap Without Lemmatization**: Keyword matching uses whitespace and punctuation tokenization without morphological stemming (e.g. `develop` does not automatically match `development`).
 - **Datacenter/Docker IP Rate Limiting**: DuckDuckGo and other public engines may intermittently throttle or return CAPTCHAs when SearXNG runs on datacenter or cloud IP ranges.
-- **Fixed Two-Page Retrieval**: Every non-cached query fetches two pages regardless of whether `max_results` is small (e.g., 1 or 2).
 
 ---
 
@@ -408,5 +414,4 @@ All domain and API exceptions follow structured representations using [`AppError
 
 - **Distributed Caching**: Introduce Redis-backed caching for horizontal scalability across multiple API replicas.
 - **Semantic Reranking / Stemming**: Integrate Porter stemming or lightweight embedding rerankers for semantic query matching.
-- **Dynamic Page Fetching**: Fetch page 2 lazily only when page 1 yields fewer unique valid candidates than `max_results`.
 - **Adaptive Circuit Breaking**: Implement active circuit breakers per upstream engine to fast-fail engines experiencing extended outages.
