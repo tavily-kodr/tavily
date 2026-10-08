@@ -10,7 +10,7 @@ import {
   reciprocalRankFusion,
   tokenize,
 } from "./rank.js";
-import type { FusedResult, RankCandidate } from "./types.js";
+import type { FusedResult, RankCandidate } from "../types.js";
 
 function candidate(
   url: string,

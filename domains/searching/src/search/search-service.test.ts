@@ -1,7 +1,7 @@
 import axios from "axios";
 import { AppError } from "@tavily/errors";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { webSearch } from "./searchService.js";
+import { webSearch } from "./search-service.js";
 
 describe("webSearch", () => {
   afterEach(() => {
@@ -12,13 +12,224 @@ describe("webSearch", () => {
     await expect(webSearch("   ")).rejects.toThrow("Query must not be empty");
   });
 
-  it("rejects invalid maxResults", async () => {
-    await expect(webSearch("valid query", 0)).rejects.toThrow(
-      "numResults must be a positive number",
-    );
-    await expect(webSearch("valid query", -5)).rejects.toThrow(
-      "numResults must be a positive number",
-    );
+  describe("maxResults validation", () => {
+    it("rejects invalid maxResults (0, negative, non-integer)", async () => {
+      await expect(webSearch("valid query", 0)).rejects.toThrow(
+        "maxResults must be a positive integer",
+      );
+      await expect(webSearch("valid query", -1)).rejects.toThrow(
+        "maxResults must be a positive integer",
+      );
+      await expect(webSearch("valid query", 2.5)).rejects.toThrow(
+        "maxResults must be a positive integer",
+      );
+    });
+
+    it("accepts valid positive integer maxResults (1, 10)", async () => {
+      vi.spyOn(axios, "get").mockResolvedValue({
+        data: { query: "q", results: [] },
+      });
+
+      await expect(webSearch("valid query", 1)).resolves.toMatchObject({
+        results: [],
+        partial: false,
+      });
+      await expect(webSearch("valid query", 10)).resolves.toMatchObject({
+        results: [],
+        partial: false,
+      });
+    });
+  });
+
+  describe("runtime Zod response validation", () => {
+    it("accepts a valid SearXNG response", async () => {
+      vi.spyOn(axios, "get").mockResolvedValue({
+        data: {
+          query: "q",
+          results: [
+            {
+              title: "Valid Title",
+              url: "https://example.com",
+              content: "Valid snippet",
+              engine: "bing",
+              engines: ["bing"],
+            },
+          ],
+          unresponsive_engines: [],
+        },
+      });
+
+      const res = await webSearch("valid response test", 5);
+      expect(res.results).toHaveLength(1);
+      expect(res.results[0]?.url).toBe("https://example.com");
+    });
+
+    it("accepts a valid SearXNG response omitting optional fields", async () => {
+      vi.spyOn(axios, "get").mockResolvedValue({
+        data: {
+          results: [{ title: "No Snippet", url: "https://no-snippet.com" }],
+        },
+      });
+
+      const res = await webSearch("optional fields test", 5);
+      expect(res.results).toHaveLength(1);
+      expect(res.results[0]?.url).toBe("https://no-snippet.com");
+    });
+
+    it("throws AppError on malformed response (non-object or null)", async () => {
+      vi.spyOn(axios, "get").mockResolvedValue({
+        data: "<html>502 Bad Gateway</html>",
+      });
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      const err = await webSearch("malformed non-object").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AppError);
+      expect(err).toMatchObject({
+        code: "SEARXNG_UNAVAILABLE",
+        statusCode: 502,
+      });
+    });
+
+    it("throws AppError when required 'results' field is missing", async () => {
+      vi.spyOn(axios, "get").mockResolvedValue({
+        data: { query: "q" },
+      });
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      const err = await webSearch("missing results field").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AppError);
+      expect(err).toMatchObject({
+        code: "SEARXNG_UNAVAILABLE",
+        statusCode: 502,
+      });
+    });
+
+    it("throws AppError when field types are invalid (results is not an array)", async () => {
+      vi.spyOn(axios, "get").mockResolvedValue({
+        data: { query: "q", results: "invalid-not-array" },
+      });
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      const err = await webSearch("invalid results type").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AppError);
+      expect(err).toMatchObject({
+        code: "SEARXNG_UNAVAILABLE",
+        statusCode: 502,
+      });
+    });
+
+    it("throws AppError when result item has invalid field type (url is a number)", async () => {
+      vi.spyOn(axios, "get").mockResolvedValue({
+        data: {
+          query: "q",
+          results: [{ title: "Item", url: 12345 }],
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      const err = await webSearch("invalid url type").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AppError);
+      expect(err).toMatchObject({
+        code: "SEARXNG_UNAVAILABLE",
+        statusCode: 502,
+      });
+    });
+
+    it("throws AppError when result item has invalid field type (engines is not an array)", async () => {
+      vi.spyOn(axios, "get").mockResolvedValue({
+        data: {
+          query: "q",
+          results: [{ title: "Item", url: "https://example.com", engines: "not-an-array" }],
+        },
+      });
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      const err = await webSearch("invalid engines type").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AppError);
+      expect(err).toMatchObject({
+        code: "SEARXNG_UNAVAILABLE",
+        statusCode: 502,
+      });
+    });
+  });
+
+  describe("partial failure handling", () => {
+    type Page = { results?: unknown[]; unresponsive_engines?: unknown } | Error;
+
+    function mockPages(pages: Record<number, Page>) {
+      return vi.spyOn(axios, "get").mockImplementation(async (_url, config) => {
+        const pageno = (config?.params as { pageno: number }).pageno;
+        const page = pages[pageno];
+        if (page instanceof Error) throw page;
+        return { data: { query: "q", results: [], ...page } };
+      });
+    }
+
+    const item = (n: number | string, extra: Record<string, unknown> = {}) => ({
+      title: `Python ${n}`,
+      url: `https://site${n}.com`,
+      content: "python",
+      engine: "bing",
+      ...extra,
+    });
+
+    it("sets partial = false when all pages succeed without engine errors", async () => {
+      mockPages({
+        1: { results: [item(1)] },
+        2: { results: [item(2)] },
+      });
+
+      const res = await webSearch("all succeed", 10);
+      expect(res.results).toHaveLength(2);
+      expect(res.partial).toBe(false);
+    });
+
+    it("sets partial = true and preserves results when some pages fail (page 1 succeeds, page 2 fails)", async () => {
+      mockPages({
+        1: { results: [item(1)] },
+        2: new Error("page 2 timeout"),
+      });
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      const res = await webSearch("partial page 2 fails", 10);
+      expect(res.results).toHaveLength(1);
+      expect(res.results[0]?.url).toBe("https://site1.com");
+      expect(res.partial).toBe(true);
+    });
+
+    it("sets partial = true and preserves results when some pages fail (page 1 fails, page 2 succeeds)", async () => {
+      mockPages({
+        1: new Error("page 1 failed"),
+        2: { results: [item(2)] },
+      });
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      const res = await webSearch("partial page 1 fails", 10);
+      expect(res.results).toHaveLength(1);
+      expect(res.results[0]?.url).toBe("https://site2.com");
+      expect(res.partial).toBe(true);
+    });
+
+    it("sets partial = true when all pages succeed but an engine is unresponsive", async () => {
+      mockPages({
+        1: { results: [item(1)], unresponsive_engines: [["brave", "timeout"]] },
+        2: { results: [item(2)] },
+      });
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      const res = await webSearch("partial engine error", 10);
+      expect(res.partial).toBe(true);
+      expect(res.failedEngines).toEqual([{ engine: "brave", reason: "timeout" }]);
+    });
+
+    it("preserves complete failure error behavior when all pages fail across retries", async () => {
+      vi.spyOn(axios, "get").mockRejectedValue(new Error("searxng down"));
+      vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+      await expect(webSearch("all pages fail")).rejects.toThrow(
+        "SearXNG request failed after retry: searxng down",
+      );
+    });
   });
 
   it("dedupes, ranks, limits and caches SearXNG results", async () => {
@@ -358,18 +569,21 @@ describe("webSearch", () => {
       expect(res.enginesUsed).toEqual(["bing", "duckduckgo"]);
       // site2 was returned by both engines, so it ranks first.
       expect(res.results[0]?.url).toBe("https://site2.com");
+      expect(res.partial).toBe(false);
     });
 
-    it("uses the other page when one page fails", async () => {
+    it("uses the other page when one page fails and marks response as partial", async () => {
       mockPages({ 1: new Error("timeout"), 2: { results: [item(1), item(2)] } });
       vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
       const res = await webSearch("page one fails python", 10);
       expect(res.results).toHaveLength(2);
+      expect(res.partial).toBe(true);
 
       mockPages({ 1: { results: [item(3)] }, 2: new Error("boom") });
       const res2 = await webSearch("page two fails python", 10);
       expect(res2.results.map((r) => r.url)).toEqual(["https://site3.com"]);
+      expect(res2.partial).toBe(true);
     });
 
     it("merges failed engines from both pages without duplicates", async () => {

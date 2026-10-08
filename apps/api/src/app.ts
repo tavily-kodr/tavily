@@ -146,7 +146,7 @@ app.get("/search", async (req: Request, res: Response) => {
       cached,
     };
     logger.info("[search] completed", {
-      query,
+      queryLength: query.length,
       resultCount: results.length,
       elapsedMs,
       cached,

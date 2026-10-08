@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterBlockedDomains, filterIncludeDomains, hasNonLatinLetters } from "./filters.js";
-import type { SearchResult } from "./types.js";
+import type { SearchResult } from "../types.js";
 
 function result(url: string, title = "Title", snippet = "content"): SearchResult {
   return { title, url, snippet };

@@ -1,4 +1,4 @@
-import type { SearchResult } from "./types.js";
+import type { SearchResult } from "../types.js";
 
 function hostnameOf(url: string): string | undefined {
   try {

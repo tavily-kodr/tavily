@@ -69,8 +69,8 @@ export interface SearchOptions {
 // Shape of a single result item as returned by SearXNG's JSON API.
 // SearXNG returns more fields than this; we only type what we use.
 export interface SearxngRawResult {
-  title: string;
-  url: string;
+  title?: string | undefined;
+  url?: string | undefined;
   content?: string | undefined;
   engine?: string | undefined;
   // All engines that returned this URL (SearXNG merges duplicates).
@@ -78,7 +78,7 @@ export interface SearxngRawResult {
 }
 
 export interface SearxngRawResponse {
-  query: string;
+  query?: string | undefined;
   results: SearxngRawResult[];
   // Each entry is [engineName, reason], e.g. ["google", "timeout"].
   unresponsive_engines?: unknown;

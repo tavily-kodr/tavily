@@ -1,4 +1,4 @@
-import type { SearchResult } from "./types.js";
+import type { SearchResult } from "../types.js";
 
 /**
  * Different engines often return the same page (identical or near-identical

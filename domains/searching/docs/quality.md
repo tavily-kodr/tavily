@@ -4,7 +4,7 @@ How results are ranked and what is known not to work well.
 
 ## Ranking
 
-Implemented in `src/rank.ts` (pure functions, no I/O).
+Implemented in `src/rank/rank.ts` (pure functions, no I/O).
 
 1. **Reciprocal rank fusion (k = 60).** Each result's score is the sum of `1 / (60 + rank)` over
    every engine that returned it, where `rank` is its 1-based position among that engine's

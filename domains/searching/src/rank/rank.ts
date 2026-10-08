@@ -1,5 +1,5 @@
-import { normalizeUrl } from "./dedupe.js";
-import type { FusedResult, RankCandidate, RankedResult } from "./types.js";
+import { normalizeUrl } from "../dedupe/dedupe.js";
+import type { FusedResult, RankCandidate, RankedResult } from "../types.js";
 
 export const RRF_K = 60;
 

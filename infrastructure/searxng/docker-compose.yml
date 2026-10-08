@@ -1,6 +1,6 @@
 services:
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2026.10.7-6671d89be
     container_name: searxng
     ports:
       - "8080:8080"

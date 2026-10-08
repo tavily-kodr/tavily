@@ -63,18 +63,25 @@ apps/api/
 
 domains/searching/
 ├── src/
-│   ├── index.ts                # Public exports for the @tavily/searching package
+│   ├── cache/
+│   │   ├── cache.ts            # In-memory TTL cache
+│   │   └── cache.test.ts       # Unit tests for cache expiration
+│   ├── dedupe/
+│   │   ├── dedupe.ts           # Canonical URL normalization and deduplication
+│   │   └── dedupe.test.ts      # Unit tests for URL normalizer
+│   ├── filters/
+│   │   ├── filters.ts          # Domain inclusion and exclusion filtering
+│   │   └── filters.test.ts     # Unit tests for domain matching
+│   ├── rank/
+│   │   ├── rank.ts             # Reciprocal Rank Fusion (RRF), keyword overlap, and authority boosting
+│   │   └── rank.test.ts        # Unit tests for scoring, penalties, and backfill logic
+│   ├── searxng/
+│   │   └── searxng-client.ts   # SearXNG client, Zod response validation schemas, and page fetching
+│   ├── search/
+│   │   ├── search-service.ts   # webSearch orchestrator: parallel page fetching, retries, caching
+│   │   └── search-service.test.ts # Integration tests for search service, caching, and fallback logic
 │   ├── types.ts                # Public search contracts, options, and SearXNG raw response types
-│   ├── searchService.ts        # webSearch orchestrator: parallel page fetching, retries, caching
-│   ├── searchService.test.ts   # Integration tests for search service, caching, and fallback logic
-│   ├── rank.ts                 # Reciprocal Rank Fusion (RRF), keyword overlap, and authority boosting
-│   ├── rank.test.ts            # Unit tests for scoring, penalties, and backfill logic
-│   ├── dedupe.ts               # Canonical URL normalization and deduplication
-│   ├── dedupe.test.ts          # Unit tests for URL normalizer
-│   ├── filters.ts              # Domain inclusion and exclusion filtering
-│   ├── filters.test.ts         # Unit tests for domain matching
-│   ├── cache.ts                # In-memory TTL cache
-│   └── cache.test.ts           # Unit tests for cache expiration
+│   └── index.ts                # Public exports for the @tavily/searching package
 ├── docs/
 │   ├── README.md               # Web search architecture and integration documentation
 │   └── quality.md              # Quality metrics and scoring breakdown
@@ -167,12 +174,12 @@ curl "http://localhost:3000/search?q=typescript+generics&max_results=5&topic=gen
 
 ## Search Pipeline
 
-The search execution pipeline in [`webSearch`](../src/searchService.ts) executes the following sequential steps:
+The search execution pipeline in [`webSearch`](../src/search/search-service.ts) executes the following sequential steps:
 
 1. **Input Validation**: Validates non-empty query string and positive `maxResults`.
 2. **Cache Key Generation & Lookup**:
    - Evaluates compound cache key: `[query, maxResults, language, topic, timeRange, sortedIncludeDomains, sortedExcludeDomains]`.
-   - Checks the in-memory [`TtlCache`](../src/cache.ts) (5-minute TTL). Returns immediately if hit.
+   - Checks the in-memory [`TtlCache`](../src/cache/cache.ts) (5-minute TTL). Returns immediately if hit.
 3. **Parallel Multi-Page Upstream Fetch**:
    - Sends concurrent HTTP GET requests to SearXNG for page 1 and page 2 using persistent HTTP/HTTPS agents (`keepAlive: true`) with a 3000ms timeout per page.
    - Tolerates single-page failures if at least one page succeeds.
@@ -186,8 +193,8 @@ The search execution pipeline in [`webSearch`](../src/searchService.ts) executes
    - Aggregates engine rankings across pages and engines.
    - Computes Reciprocal Rank Fusion score: `RRF = Σ 1 / (60 + engineRank)`.
 7. **Hard Domain Filtering**:
-   - Applies `excludeDomains` using [`filterBlockedDomains`](../src/filters.ts) to drop matched hosts or subdomains.
-   - Applies `includeDomains` using [`filterIncludeDomains`](../src/filters.ts) to restrict results to allowed hosts.
+   - Applies `excludeDomains` using [`filterBlockedDomains`](../src/filters/filters.ts) to drop matched hosts or subdomains.
+   - Applies `includeDomains` using [`filterIncludeDomains`](../src/filters/filters.ts) to restrict results to allowed hosts.
 8. **Relevance Scoring & Quality Checks**:
    - Analyzes distinct query keyword overlap against candidate title and snippet (stopwords and standalone numbers removed).
    - Calculates composite score: `0.5 * (RRF / maxRRF) + 0.5 * keywordOverlap`.

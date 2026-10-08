@@ -1,6 +1,6 @@
-export { webSearch } from "./searchService.js";
-export { deduplicateResults, normalizeUrl } from "./dedupe.js";
-export { filterBlockedDomains, filterIncludeDomains } from "./filters.js";
+export { webSearch } from "./search/search-service.js";
+export { deduplicateResults, normalizeUrl } from "./dedupe/dedupe.js";
+export { filterBlockedDomains, filterIncludeDomains } from "./filters/filters.js";
 export {
   fuseResults,
   isAuthoritativeUrl,
@@ -11,9 +11,16 @@ export {
   rankResults,
   reciprocalRankFusion,
   tokenize,
-} from "./rank.js";
-export type { RankOptions, RankOutcome } from "./rank.js";
-export { TtlCache } from "./cache.js";
+} from "./rank/rank.js";
+export type { RankOptions, RankOutcome } from "./rank/rank.js";
+export { TtlCache } from "./cache/cache.js";
+export {
+  fetchFromSearxng,
+  fetchPages,
+  validateSearxngResponse,
+  searxngRawResponseSchema,
+  searxngRawResultSchema,
+} from "./searxng/searxng-client.js";
 export type {
   FailedEngine,
   FusedResult,
