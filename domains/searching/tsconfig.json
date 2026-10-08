@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "paths": {
+      "@tavily/config": ["../../packages/config/src"],
+      "@tavily/errors": ["../../packages/errors/src"],
+      "@tavily/logger": ["../../packages/logger/src"]
+    }
+  },
+  "include": ["src/**/*"]
+}

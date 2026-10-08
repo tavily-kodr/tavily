@@ -1,0 +1,7 @@
+{
+  "name": "@tavily/logger",
+  "version": "1.0.0",
+  "description": "Shared structured logger for Tavily monorepo",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts"
+}

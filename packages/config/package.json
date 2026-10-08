@@ -1,0 +1,7 @@
+{
+  "name": "@tavily/config",
+  "version": "1.0.0",
+  "description": "Shared configuration and environment variable validation for Tavily monorepo",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts"
+}

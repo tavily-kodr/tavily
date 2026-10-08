@@ -1,0 +1,21 @@
+{
+  "name": "@tavily/searching",
+  "version": "1.0.0",
+  "description": "Tavily Searching Domain: Retrieval, Ranking, Deduplication, and Grounded Synthesis",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "tsx src/tests/run-all-tests.ts"
+  },
+  "dependencies": {
+    "@tavily/config": "workspace:*",
+    "@tavily/errors": "workspace:*",
+    "@tavily/logger": "workspace:*",
+    "cheerio": "^1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "tsx": "^4.23.15",
+    "typescript": "^5.5.3"
+  }
+}

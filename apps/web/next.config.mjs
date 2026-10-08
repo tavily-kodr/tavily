@@ -1,11 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  poweredByHeader: false,
-  transpilePackages: ['@tavily/searching', '@tavily/config', '@tavily/errors', '@tavily/logger'],
+  transpilePackages: ['@tavily/config', '@tavily/errors', '@tavily/logger', '@tavily/searching'],
   async rewrites() {
     return [
-      // Tavily-compatible top-level /search route alias to /api/search
       {
         source: '/search',
         destination: '/api/search',
