@@ -21,9 +21,9 @@ function matchesDomain(host: string, domains: readonly string[]): boolean {
  */
 export function filterBlockedDomains<T extends SearchResult>(
   results: T[],
-  blockedDomains: readonly string[],
+  domains: readonly string[],
 ): T[] {
-  const blocked = normalizeDomains(blockedDomains);
+  const blocked = normalizeDomains(domains);
   if (blocked.length === 0) return results;
 
   return results.filter((r) => {
@@ -53,15 +53,4 @@ const NON_LATIN_LETTER = /(?!\p{Script=Latin})\p{L}/u;
 
 export function hasNonLatinLetters(text: string): boolean {
   return NON_LATIN_LETTER.test(text);
-}
-
-// Hostname keywords that mark adult sites missing from the explicit blocklist.
-const ADULT_HOST_HINT = /porn|xxx|hentai|nsfw|xvideo|camgirl|sexcam|sextube|sexvideo/i;
-
-/** Hard-drops results whose hostname looks like an adult site. */
-export function filterAdultResults<T extends SearchResult>(results: T[]): T[] {
-  return results.filter((r) => {
-    const host = hostnameOf(r.url);
-    return host !== undefined && !ADULT_HOST_HINT.test(host);
-  });
 }

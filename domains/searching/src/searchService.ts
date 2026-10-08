@@ -7,7 +7,6 @@ import type {
   FailedEngine,
   RankCandidate,
   RankedResult,
-  SafeSearchLevel,
   SearchOptions,
   SearchTopic,
   SearxngRawResponse,
@@ -15,12 +14,11 @@ import type {
   TimeRange,
 } from "./types.js";
 import { TtlCache } from "./cache.js";
-import { filterAdultResults, filterBlockedDomains, filterIncludeDomains } from "./filters.js";
+import { filterBlockedDomains, filterIncludeDomains } from "./filters.js";
 import { fuseResults, rankResults } from "./rank.js";
 
 const DEFAULT_SEARXNG_URL = "http://localhost:8080";
 const DEFAULT_LANGUAGE = "en-US";
-const DEFAULT_SAFESEARCH: SafeSearchLevel = 2;
 const DEFAULT_TOPIC: SearchTopic = "general";
 
 // Reuse TCP connections to your local SearXNG instance instead of
@@ -48,7 +46,6 @@ const resultCache = new TtlCache<CachedSearch>(CACHE_TTL_MS);
 
 interface SearxngParams {
   language: string;
-  safesearch: SafeSearchLevel;
   topic: SearchTopic;
   timeRange: TimeRange | undefined;
 }
@@ -64,7 +61,6 @@ function cacheKey(
     query.trim().toLowerCase(),
     maxResults,
     params.language,
-    params.safesearch,
     params.topic,
     params.timeRange ?? "",
     [...includeDomains].sort(),
@@ -84,7 +80,6 @@ async function fetchFromSearxng(
       q: query,
       format: "json",
       language: params.language,
-      safesearch: params.safesearch,
       categories: params.topic,
       pageno,
       ...(params.timeRange ? { time_range: params.timeRange } : {}),
@@ -210,7 +205,7 @@ function toCandidates(rawResults: SearxngRawResult[]): RankCandidate[] {
  * up, since a single slow/dropped request shouldn't fail the whole call
  * when a quick retry often succeeds.
  *
- * All settings (SearXNG URL, language, safesearch, domain filters) come in
+ * All settings (SearXNG URL, language, domain filters) come in
  * via `options`; this module never reads the environment.
  */
 export async function webSearch(
@@ -239,11 +234,9 @@ export async function webSearch(
   const searxngUrl = options.searxngUrl ?? DEFAULT_SEARXNG_URL;
   const params: SearxngParams = {
     language: options.language ?? DEFAULT_LANGUAGE,
-    safesearch: options.safesearch ?? DEFAULT_SAFESEARCH,
     topic: options.topic ?? DEFAULT_TOPIC,
     timeRange: options.timeRange,
   };
-  const blockedDomains = options.blockedDomains ?? [];
   const includeDomains = options.includeDomains ?? [];
   const excludeDomains = options.excludeDomains ?? [];
 
@@ -300,12 +293,11 @@ export async function webSearch(
     }
   }
 
-  // Fusion also dedupes by normalized URL across both pages. Only blocklisted,
-  // excluded and adult results are dropped; quality checks rank results down
+  // Fusion also dedupes by normalized URL across both pages. Only excluded
+  // results are dropped; quality checks rank results down
   // and backfill (lowConfidence) when too few good results remain.
   let candidates = fuseResults(toCandidates(rawResults));
-  candidates = filterBlockedDomains(candidates, [...blockedDomains, ...excludeDomains]);
-  candidates = filterAdultResults(candidates);
+  candidates = filterBlockedDomains(candidates, excludeDomains);
   candidates = filterIncludeDomains(candidates, includeDomains);
 
   const ranked = rankResults(query, candidates, {

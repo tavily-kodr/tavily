@@ -13,7 +13,6 @@ server:
   image_proxy: false
 
 search:
-  safe_search: 0 # safe search if off means 0 , moderate means 1 and strict means 2
   autocomplete: "" # An empty value means you're not configuring an autocomplete service here.
   default_lang: "en-US"
   formats:

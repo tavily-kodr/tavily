@@ -3,7 +3,7 @@ import cors from "cors";
 import { loadEnv } from "@tavily/config";
 import { AppError } from "@tavily/errors";
 import { logger } from "@tavily/logger";
-import { webSearch, type SafeSearchLevel, type SearchResponse } from "@tavily/searching";
+import { webSearch, type SearchResponse } from "@tavily/searching";
 import { z } from "zod";
 
 export const app: Express = express();
@@ -71,52 +71,20 @@ const searchQuerySchema = z.object({
       )
       .default("en-US"),
   ),
-  safesearch: z.preprocess(
-    (val) => (val === undefined || val === "" ? 2 : Number(val)),
-    z
-      .number()
-      .int()
-      .min(0, "Query param 'safesearch' must be 0, 1 or 2")
-      .max(2, "Query param 'safesearch' must be 0, 1 or 2"),
-  ),
 });
 
 const apiEnvSchema = z.object({
   SEARXNG_URL: z.string().url().default("http://localhost:8080"),
-  // Comma-separated hostnames; replaces the built-in adult/spam list when set.
-  BLOCKED_DOMAINS: z.string().optional(),
   // Comma-separated engines enabled in SearXNG; used to detect a total outage.
   SEARXNG_ENGINES: z.string().default("bing,duckduckgo,brave,mojeek,wikipedia"),
 });
 
-const DEFAULT_BLOCKED_DOMAINS = [
-  "pornhub.com",
-  "xvideos.com",
-  "xnxx.com",
-  "xhamster.com",
-  "redtube.com",
-  "youporn.com",
-  "spankbang.com",
-  "onlyfans.com",
-  "stripchat.com",
-  "chaturbate.com",
-  "livejasmin.com",
-  "brazzers.com",
-  "eporner.com",
-];
-
 function buildSearchSettings() {
   const env = loadEnv(apiEnvSchema);
-  const blockedDomains =
-    env.BLOCKED_DOMAINS !== undefined
-      ? env.BLOCKED_DOMAINS.split(",")
-          .map((d) => d.trim())
-          .filter(Boolean)
-      : DEFAULT_BLOCKED_DOMAINS;
   const expectedEngines = env.SEARXNG_ENGINES.split(",")
     .map((e) => e.trim())
     .filter(Boolean);
-  return { searxngUrl: env.SEARXNG_URL, blockedDomains, expectedEngines };
+  return { searxngUrl: env.SEARXNG_URL, expectedEngines };
 }
 
 app.get("/health", (_req: Request, res: Response) => {
@@ -144,7 +112,6 @@ app.get("/search", async (req: Request, res: Response) => {
     time_range: timeRange,
     topic,
     language,
-    safesearch,
   } = parsed.data;
   const startedAt = Date.now();
 
@@ -155,7 +122,6 @@ app.get("/search", async (req: Request, res: Response) => {
       {
         ...buildSearchSettings(),
         language,
-        safesearch: safesearch as SafeSearchLevel,
         includeDomains,
         excludeDomains,
         timeRange,

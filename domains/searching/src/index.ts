@@ -1,6 +1,6 @@
 export { webSearch } from "./searchService.js";
 export { deduplicateResults, normalizeUrl } from "./dedupe.js";
-export { filterAdultResults, filterBlockedDomains, filterIncludeDomains } from "./filters.js";
+export { filterBlockedDomains, filterIncludeDomains } from "./filters.js";
 export {
   fuseResults,
   isAuthoritativeUrl,
@@ -19,7 +19,6 @@ export type {
   FusedResult,
   RankCandidate,
   RankedResult,
-  SafeSearchLevel,
   SearchOptions,
   SearchResponse,
   SearchResponseItem,

@@ -86,7 +86,6 @@ describe("API endpoints", () => {
         7,
         expect.objectContaining({
           language: "en-US",
-          safesearch: 2,
           topic: "general",
           timeRange: undefined,
           includeDomains: [],
@@ -124,7 +123,6 @@ describe("API endpoints", () => {
     });
 
     it.each([
-      ["safesearch=5"],
       ["language=@@"],
       ["time_range=decade"],
       ["topic=sports"],

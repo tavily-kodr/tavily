@@ -1,31 +1,6 @@
 # Search quality
 
-How results are ranked, how quality is measured, and what is known not to work well.
-
-## Measuring
-
-- `node scripts/quality-check.ts` runs 15 fixed queries (what-is, news, how-to, ambiguous) against
-  the local API and prints result count, engines, % English, blocked domains, top-3 domains and
-  response time. It exits non-zero if any result is on a blocked or adult domain.
-- `node scripts/bench.ts` sends 200 requests at concurrency 10 and prints p50/p95/p99 latency,
-  cache hit rate and requests per second.
-
-Both need the API (`pnpm --filter @tavily/api dev`) and SearXNG running.
-
-## Before / after
-
-Fill in from `quality-check.ts` and a manual relevance review of the same 15 queries.
-
-| Metric                               | Before | After |
-| ------------------------------------ | ------ | ----- |
-| Relevant results in top 3 (avg / 3)  | _TBD_  | _TBD_ |
-| % English results                    | _TBD_  | _TBD_ |
-| Adult / blocklisted results (total)  | _TBD_  | _TBD_ |
-| Distinct engines per query (avg)     | _TBD_  | _TBD_ |
-| Share of results from the top engine | _TBD_  | _TBD_ |
-| Queries returning 0 results          | _TBD_  | _TBD_ |
-| p50 / p95 latency (ms, cold cache)   | _TBD_  | _TBD_ |
-| Cache hit rate (bench)               | _TBD_  | _TBD_ |
+How results are ranked and what is known not to work well.
 
 ## Ranking
 
@@ -46,7 +21,7 @@ Implemented in `src/rank.ts` (pure functions, no I/O).
 5. **Normalization.** Scores are divided by the maximum so the top result is `1`, then sorted
    descending. Ties keep their input order.
 
-Before ranking, results pass the domain blocklist, `include_domains` / `exclude_domains`, and for
+Before ranking, results pass `include_domains` / `exclude_domains`, and for
 English searches a filter that drops empty content and non-Latin-script titles.
 
 ## Known limitations
@@ -65,7 +40,4 @@ English searches a filter that drops empty content and non-Latin-script titles.
 - **Ambiguous queries** ("jaguar", "apple") are ranked by agreement and overlap only; there is no
   intent disambiguation.
 - **Partial responses are not cached**, so a flaky engine increases load and latency.
-- **Cache is per process** and resets on restart; the bench cache hit rate depends on the query
-  mix it cycles through.
-- The adult check in `quality-check.ts` is the configured blocklist plus a hostname keyword
-  heuristic; it will not catch adult content on innocuous-looking domains.
+- **Cache is per process** and resets on restart.

@@ -41,7 +41,6 @@ describe("webSearch", () => {
     expect(first.results[0]?.score).toBe(1);
     expect(get.mock.calls[0]?.[1]?.params).toMatchObject({
       language: "en-US",
-      safesearch: 2,
       categories: "general",
     });
     expect(get.mock.calls[0]?.[1]?.params).not.toHaveProperty("time_range");
@@ -156,13 +155,12 @@ describe("webSearch", () => {
     expect(get).toHaveBeenCalledTimes(4);
   });
 
-  it("hard-drops blocklisted and adult domains but only ranks soft-filter failures down", async () => {
+  it("hard-drops excluded domains but only ranks soft-filter failures down", async () => {
     vi.spyOn(axios, "get").mockResolvedValue({
       data: {
         query: "f",
         results: [
-          { title: "Bad", url: "https://www.adult.example/x", content: "filter" },
-          { title: "Adult", url: "https://free-porn.example/x", content: "filter" },
+          { title: "Bad", url: "https://www.bad.example/x", content: "filter" },
           { title: "No content", url: "https://empty.com", content: "" },
           { title: "Питон", url: "https://ru.example", content: "filter" },
           { title: "Good", url: "https://good.com", content: "filter" },
@@ -170,7 +168,7 @@ describe("webSearch", () => {
       },
     });
 
-    const res = await webSearch("filter query", 10, { blockedDomains: ["adult.example"] });
+    const res = await webSearch("filter query", 10, { excludeDomains: ["bad.example"] });
     expect(res.filtered).toBe(true);
     expect(res.results[0]?.url).toBe("https://good.com");
     expect(res.results.map((r) => r.url).sort()).toEqual([
@@ -238,7 +236,7 @@ describe("webSearch", () => {
     ]);
   });
 
-  it("still drops blocklisted domains when falling back to unfiltered results", async () => {
+  it("still drops excluded domains when falling back to unfiltered results", async () => {
     vi.spyOn(axios, "get").mockResolvedValue({
       data: {
         query: "q",
@@ -246,7 +244,7 @@ describe("webSearch", () => {
       },
     });
 
-    const res = await webSearch("blocked only query", 5, { blockedDomains: ["blocked.example"] });
+    const res = await webSearch("blocked only query", 5, { excludeDomains: ["blocked.example"] });
     expect(res.results).toEqual([]);
   });
 
@@ -468,16 +466,15 @@ describe("webSearch", () => {
       expect(get).toHaveBeenCalledTimes(4);
     });
 
-    it("includes language and safesearch in the cache key", async () => {
+    it("includes language in the cache key", async () => {
       const get = mockPages({ 1: { results: [item(1)] }, 2: { results: [] } });
       await webSearch("keyed python", 10);
       await webSearch("keyed python", 10, { language: "en-GB" });
-      await webSearch("keyed python", 10, { safesearch: 1 });
       await webSearch("keyed python", 5);
-      expect(get).toHaveBeenCalledTimes(8);
+      expect(get).toHaveBeenCalledTimes(6);
       const again = await webSearch("keyed python", 10);
       expect(again.cached).toBe(true);
-      expect(get).toHaveBeenCalledTimes(8);
+      expect(get).toHaveBeenCalledTimes(6);
     });
   });
 

@@ -50,7 +50,6 @@ export interface SearchResponse {
   cached: boolean;
 }
 
-export type SafeSearchLevel = 0 | 1 | 2;
 export type TimeRange = "day" | "week" | "month" | "year";
 export type SearchTopic = "general" | "news";
 
@@ -58,8 +57,6 @@ export type SearchTopic = "general" | "news";
 export interface SearchOptions {
   searxngUrl?: string | undefined;
   language?: string | undefined;
-  safesearch?: SafeSearchLevel | undefined;
-  blockedDomains?: readonly string[] | undefined;
   // Engines enabled in SearXNG; when all of them are unresponsive and nothing
   // came back, webSearch throws a 503 instead of returning an empty 200.
   expectedEngines?: readonly string[] | undefined;

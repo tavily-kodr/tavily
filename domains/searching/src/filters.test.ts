@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  filterBlockedDomains,
-  filterAdultResults,
-  filterIncludeDomains,
-  hasNonLatinLetters,
-} from "./filters.js";
+import { filterBlockedDomains, filterIncludeDomains, hasNonLatinLetters } from "./filters.js";
 import type { SearchResult } from "./types.js";
 
 function result(url: string, title = "Title", snippet = "content"): SearchResult {
@@ -55,22 +50,6 @@ describe("filterIncludeDomains", () => {
   it("keeps everything when the list is empty", () => {
     const input = [result("https://a.com"), result("https://b.com")];
     expect(filterIncludeDomains(input, [])).toBe(input);
-  });
-});
-
-describe("filterAdultResults", () => {
-  it("returns an empty array for empty results", () => {
-    expect(filterAdultResults([])).toEqual([]);
-  });
-
-  it("drops hostnames with adult keywords and keeps the rest", () => {
-    const out = filterAdultResults([
-      result("https://best-porn-site.com"),
-      result("https://xxx-cams.net/x"),
-      result("https://sussex.ac.uk"),
-      result("https://example.com"),
-    ]);
-    expect(out.map((r) => r.url)).toEqual(["https://sussex.ac.uk", "https://example.com"]);
   });
 });
 
