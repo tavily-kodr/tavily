@@ -6,7 +6,7 @@ This document describes the Search API implementation in the Tavily monorepo und
 
 ## Search API Overview
 
-The Search API provides a high-performance, structured search endpoint that queries Google via an internal [SearXNG](https://docs.searxng.org/) metasearch engine instance, cleans and normalizes the results, deduplicates URLs, and returns the top 10 organic search results with high-resolution execution timing.
+The Search API provides a high-performance, structured search endpoint that queries Google via an internal [SearXNG](https://docs.searxng.org/) metasearch engine instance, cleans and normalizes the results, deduplicates URLs, and returns up to `MAX_RESULTS` (default 10) valid unique organic search results with high-resolution execution timing.
 
 ### Why SearXNG is Used
 
@@ -37,7 +37,7 @@ Google Search Engine
   ▼
 Raw JSON Response
   ▼
-Search Service (Normalization, URL validation, Deduplication, Top 10 Slice)
+Search Service (Normalization, URL validation, Deduplication, Result Capping)
   ▼
 Controller
   │ [Computes took_ms = elapsedMs(startTime)]
@@ -52,7 +52,7 @@ The API returns a predictable JSON object containing:
 - `success`: Boolean indicator (`true` on success, `false` on failure).
 - `data`:
   - `query`: The sanitized query string.
-  - `results`: An array of at most 10 normalized organic result objects (`title`, `url`, `content`, `score`).
+  - `results`: An array of at most `MAX_RESULTS` normalized organic result objects (`title`, `url`, `content`, `score`).
   - `took_ms`: The measured end-to-end server execution time in integer milliseconds.
 - `error` (on failure): A structured error object containing `code` and `message`.
 
@@ -75,7 +75,7 @@ Search Service (search.service.ts)
   ↓
 SearXNG Client (searxng.client.ts)
   ↓
-SearXNG Container (infrastructure/docker-compose.yml)
+SearXNG Container (infrastructure/local/searching/docker/docker-compose.yml)
   ↓
 Google Search Engine
 ```
@@ -86,7 +86,7 @@ Google Search Engine
 | :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Route**             | [`search.routes.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/routes/search.routes.ts)                                                                                                                   | Maps incoming HTTP endpoints (`POST /search`, `GET /search/:query`, `POST /search/:query`) to controller actions.                                                                                                             |
 | **Controller**        | [`search.controller.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/controllers/search.controller.ts)                                                                                                      | Extracts query from request body (`query`) or path parameter (`:query`), coordinates high-resolution timing, calls `SearchService`, emits structured logs via `@tavily/logger`, and formats success and error JSON envelopes. |
-| **Search Service**    | [`search.service.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/services/search.service.ts)                                                                                                               | Encapsulates domain logic: validates search input, calls `SearxngClient`, normalizes raw results, validates and canonicalizes URLs, eliminates duplicates, and caps the list to top 10 items while preserving ranking order.  |
+| **Search Service**    | [`search.service.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/services/search.service.ts)                                                                                                               | Encapsulates domain logic: validates search input, calls `SearxngClient`, normalizes raw results, validates and canonicalizes URLs, eliminates duplicates, and caps the list to `MAX_RESULTS` valid unique items.             |
 | **SearXNG Client**    | [`searxng.client.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/clients/searxng.client.ts)                                                                                                                | Manages HTTP communication with the upstream SearXNG service, enforces configurable request timeouts (`AbortSignal.timeout`), handles connection issues, parses JSON, and maps low-level errors into domain `AppError` types. |
 | **Result Normalizer** | [`search.service.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/services/search.service.ts) & [`url-validator.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/utils/url-validator.ts) | Strips unnecessary upstream metadata, validates standard HTTP/HTTPS URL syntax, canonicalizes paths to prevent duplicates, and constructs clean typed outputs.                                                                |
 | **Error Handling**    | [`app.ts`](file:///d:/Mern%20Projects/Tavily/tavily/domains/searching/src/app.ts) & [`@tavily/errors`](file:///d:/Mern%20Projects/Tavily/tavily/packages/errors)                                                               | Translates domain errors (`AppError`) and framework errors into standardized JSON responses with corresponding HTTP status codes.                                                                                             |
@@ -141,12 +141,12 @@ NODE_ENV=development
 MAX_RESULTS=10
 ```
 
-### 3. Start SearXNG via Docker
+### 3. Start Local Infrastructure via Docker
 
-Start SearXNG and the Valkey caching container using Docker Compose:
+Start local SearXNG and Valkey caching services or the entire local stack using Docker Compose:
 
 ```bash
-docker compose -f infrastructure/searxng/docker-compose.yml up -d
+docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d
 ```
 
 Verify that the containers are healthy:
@@ -157,7 +157,7 @@ docker ps
 
 You should see `tavily-searxng-core` listening on `0.0.0.0:8080->8080/tcp`.
 
-### 4. Build and Start the Search API
+### 4. Build and Start the Search API (Host Development)
 
 Build the packages across the monorepo:
 
@@ -179,96 +179,120 @@ pnpm --filter @tavily/searching dev
 
 ### 5. Docker Setup and Execution
 
-The repository maintains an intentional separation between **production infrastructure** and **domain local development**:
+The repository maintains an intentional separation between **local development infrastructure** and **production infrastructure**:
 
-- `infrastructure/` — Production infrastructure configs (must not be modified for local domain development).
-- `domains/searching/src/docker/` — Independent Searching domain Docker setup for local development and testing.
-- `infrastructure/searxng/` — Shared SearXNG service consumed via `SEARXNG_URL` (intentionally separate).
+- `infrastructure/local/searching/docker/` — Local Searching service and local SearXNG setup.
+- `infrastructure/production/searching/` — Production Searching Docker build infrastructure.
 
-#### A. Searching Domain Local Development
+#### A. LOCAL DEVELOPMENT
 
-The domain-local Docker setup is located under `domains/searching/src/docker/`. It uses `Dockerfile.dev` with live reload (`tsx watch src/server.ts`) and mounts domain source directories for active development.
+The local Docker setup is consolidated under `infrastructure/local/searching/docker/`. It uses a single Dockerfile (`infrastructure/local/searching/docker/Dockerfile`) with live reload (`pnpm dev`) and mounts domain and workspace package sources for interactive development.
 
-1. **Start SearXNG** (using existing infrastructure):
-
-   ```bash
-   docker compose -f infrastructure/searxng/docker-compose.yml up -d
-   ```
-
-2. **Start the Searching domain container**:
+1. **Start Local SearXNG**:
 
    ```bash
-   docker compose -f domains/searching/src/docker/docker-compose.yml up -d
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d
    ```
 
-3. **Check container status**:
+   To start specifically the SearXNG and Valkey services:
 
    ```bash
-   docker ps
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d searxng
    ```
 
-4. **View Searching container logs**:
+2. **Start Local Searching**:
 
    ```bash
-   docker compose -f domains/searching/src/docker/docker-compose.yml logs -f
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d searching
    ```
 
-5. **Verify the Searching API**:
+   Or start both services simultaneously:
 
    ```bash
-   curl -s http://127.0.0.1:3000/health
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d
    ```
 
-   Or execute a test search query:
+3. **Check Container Status**:
 
    ```bash
-   curl -X POST http://127.0.0.1:3000/search \
-     -H "Content-Type: application/json" \
-     -d '{"query": "antigravity"}'
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml ps
    ```
 
-6. **Rebuild after dependency or Dockerfile changes**:
+4. **View Logs**:
+
+   - Searching service logs:
+     ```bash
+     docker compose -f infrastructure/local/searching/docker/docker-compose.yml logs -f searching
+     ```
+   - SearXNG logs:
+     ```bash
+     docker compose -f infrastructure/local/searching/docker/docker-compose.yml logs -f searxng
+     ```
+
+5. **Rebuild Local Searching**:
+
+   When modifying dependencies or container configuration, rebuild and restart the Searching service:
 
    ```bash
-   docker compose -f domains/searching/src/docker/docker-compose.yml build
-   docker compose -f domains/searching/src/docker/docker-compose.yml up -d
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml build searching
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d searching
    ```
 
-7. **Stop the Searching domain container**:
+6. **Stop Local Searching**:
+
+   To stop only the Searching service:
 
    ```bash
-   docker compose -f domains/searching/src/docker/docker-compose.yml down
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml stop searching
    ```
 
-8. **Stop SearXNG** (when finished):
+7. **Start / Stop Local SearXNG**:
+
+   - Start SearXNG:
+     ```bash
+     docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d searxng
+     ```
+   - Stop SearXNG:
+     ```bash
+     docker compose -f infrastructure/local/searching/docker/docker-compose.yml stop searxng
+     ```
+
+8. **Stop Entire Local Stack**:
+
    ```bash
-   docker compose -f infrastructure/searxng/docker-compose.yml down
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml down
    ```
 
-#### B. Production Infrastructure
+9. **Configure `MAX_RESULTS`**:
 
-Production infrastructure lives under `infrastructure/searching/docker/` and must not be modified for local domain development.
+   The maximum number of search results returned by the Search API is controlled by the `MAX_RESULTS` environment variable (configured in `.env` or via Docker Compose environment).
 
-- **Build production image**:
+   - `MAX_RESULTS=10` → return up to 10 valid unique results.
+   - `MAX_RESULTS=5` → return up to 5 valid unique results.
+   - `MAX_RESULTS=3` → return up to 3 valid unique results.
+
+   The limit is enforced strictly after URL validation and canonical deduplication. If upstream SearXNG returns fewer valid unique results than `MAX_RESULTS`, the API returns all available valid results without inventing artificial results.
+
+#### B. PRODUCTION
+
+Production infrastructure lives under `infrastructure/production/searching/` containing the multi-stage production Dockerfile ([`infrastructure/production/searching/Dockerfile`](file:///d:/Mern%20Projects/Tavily/tavily/infrastructure/production/searching/Dockerfile)).
+
+- **Build Production Image**:
 
   ```bash
-  docker build -f infrastructure/searching/docker/Dockerfile -t tavily-searching:latest .
+  docker build -f infrastructure/production/searching/Dockerfile -t tavily-searching:latest .
   ```
 
-- **Run production image**:
+- **Run Production Image**:
 
   ```bash
   docker run -d --name tavily-searching-prod -p 3000:3000 \
     -e PORT=3000 \
     -e NODE_ENV=production \
     -e SEARXNG_URL=http://host.docker.internal:8080 \
+    -e MAX_RESULTS=10 \
     --add-host host.docker.internal:host-gateway \
     tavily-searching:latest
-  ```
-
-- **Production Compose configuration** (inspect / validate):
-  ```bash
-  docker compose -f infrastructure/searching/docker/docker-compose.yml config
   ```
 
 ---
@@ -386,7 +410,7 @@ http://127.0.0.1:8080/search?q=apnacollege&format=json&engines=google
 
 ### Docker Engine Configuration
 
-The SearXNG configuration in [`infrastructure/searxng/settings.yml`](file:///d:/Mern%20Projects/Tavily/tavily/infrastructure/searxng/settings.yml) specifies:
+The SearXNG configuration in [`infrastructure/local/searching/docker/searxng/settings.yml`](file:///d:/Mern%20Projects/Tavily/tavily/infrastructure/local/searching/docker/searxng/settings.yml) specifies:
 
 - JSON format output enabled (`search.formats: [html, json]`).
 - Rate limiting disabled for internal programmatic access (`server.limiter: false`).
@@ -400,7 +424,7 @@ When SearXNG returns the raw JSON response:
 2. **Duplicate Removal**: Each URL is canonicalized (normalizing scheme and host case, stripping redundant trailing slashes). If a URL has already been recorded, subsequent duplicates are skipped.
 3. **Ranking Preservation**: Results are processed strictly in the order provided by SearXNG, preserving the natural search relevance ranking.
 4. **Field Sanitization**: Only clean, strongly typed fields (`title`, `url`, `content`, `score`) are extracted. Upstream internal metadata (e.g., `parsed_url`, `positions`, `engine`, `category`, `open_group`) are discarded.
-5. **Top 10 Capping**: The normalized list is capped at a maximum of 10 results.
+5. **Result Capping**: The normalized list is capped at a maximum of `MAX_RESULTS` items (default 10). If upstream SearXNG returns fewer valid unique results than `MAX_RESULTS`, all available valid results are returned without inventing results.
 
 ---
 
@@ -470,40 +494,56 @@ All errors adhere to the standard Tavily error schema:
 ## Directory Structure
 
 ```text
-domains/searching/
-├── docs/
-│   └── search-api.md                     # Comprehensive developer documentation
-├── src/
-│   ├── clients/
-│   │   ├── index.ts                      # Client module exports
-│   │   └── searxng.client.ts             # Upstream SearXNG HTTP communication & timeout handling
-│   ├── controllers/
-│   │   ├── index.ts                      # Controller module exports
-│   │   └── search.controller.ts          # HTTP query resolution, timing measurement & logging
-│   ├── routes/
-│   │   ├── index.ts                      # Route module exports
-│   │   └── search.routes.ts              # Express router definition (POST /search, /search/:query)
-│   ├── services/
-│   │   ├── index.ts                      # Service module exports
-│   │   └── search.service.ts             # Normalization, URL validation, deduplication, top 10
-│   ├── types/
-│   │   ├── index.ts                      # Type module exports
-│   │   └── search.types.ts               # TypeScript interfaces & response types
-│   ├── utils/
-│   │   ├── index.ts                      # Utility module exports
-│   │   ├── timing.ts                     # High-resolution timing helpers
-│   │   └── url-validator.ts              # URL verification and canonicalization
-│   ├── app.ts                            # Express application setup & middleware configuration
-│   ├── config.ts                         # Zod-validated configuration loader (@tavily/config)
-│   ├── index.ts                          # Public module entry point
-│   └── server.ts                         # Standalone HTTP server runner
-├── test/
-│   ├── search.api.test.ts                # End-to-end API integration tests
-│   ├── search.client.test.ts             # SearXNG client unit tests
-│   └── search.service.test.ts            # SearchService normalization & deduplication tests
-├── .env.example                          # Environment variable template
-├── package.json                          # Package definition & scripts
-└── tsconfig.json                         # TypeScript compiler configuration
+tavily/
+├── domains/
+│   └── searching/
+│       ├── docs/
+│       │   └── search-api.md                     # Comprehensive developer documentation
+│       ├── src/
+│       │   ├── clients/
+│       │   │   ├── index.ts                      # Client module exports
+│       │   │   └── searxng.client.ts             # Upstream SearXNG HTTP communication & timeout handling
+│       │   ├── controllers/
+│       │   │   ├── index.ts                      # Controller module exports
+│       │   │   └── search.controller.ts          # HTTP query resolution, timing measurement & logging
+│       │   ├── routes/
+│       │   │   ├── index.ts                      # Route module exports
+│       │   │   └── search.routes.ts              # Express router definition (POST /search, /search/:query)
+│       │   ├── services/
+│       │   │   ├── index.ts                      # Service module exports
+│       │   │   └── search.service.ts             # Normalization, URL validation, deduplication, result capping
+│       │   ├── types/
+│       │   │   ├── index.ts                      # Type module exports
+│       │   │   └── search.types.ts               # TypeScript interfaces & response types
+│       │   ├── utils/
+│       │   │   ├── index.ts                      # Utility module exports
+│       │   │   ├── timing.ts                     # High-resolution timing helpers
+│       │   │   └── url-validator.ts              # URL verification and canonicalization
+│       │   ├── app.ts                            # Express application setup & middleware configuration
+│       │   ├── config.ts                         # Zod-validated configuration loader (@tavily/config)
+│       │   ├── index.ts                          # Public module entry point
+│       │   └── server.ts                         # Standalone HTTP server runner
+│       ├── test/
+│       │   ├── search.api.test.ts                # End-to-end API integration tests
+│       │   ├── search.client.test.ts             # SearXNG client unit tests
+│       │   └── search.service.test.ts            # SearchService normalization & deduplication tests
+│       ├── .env.example                          # Environment variable template
+│       ├── package.json                          # Package definition & scripts
+│       └── tsconfig.json                         # TypeScript compiler configuration
+│
+└── infrastructure/
+    ├── local/
+    │   └── searching/
+    │       └── docker/
+    │           ├── .env.example                  # Local Docker environment variable template
+    │           ├── Dockerfile                    # Single local Searching container Dockerfile (dev)
+    │           ├── docker-compose.yml            # Local Docker Compose (Searching + SearXNG + Valkey)
+    │           └── searxng/
+    │               └── settings.yml              # Local SearXNG engine configuration
+    │
+    └── production/
+        └── searching/
+            └── Dockerfile                        # Multi-stage production Searching Dockerfile
 ```
 
 ---
@@ -512,9 +552,9 @@ domains/searching/
 
 ### Running the API Locally
 
-1. Start SearXNG:
+1. Start SearXNG via Docker:
    ```bash
-   docker compose -f infrastructure/searxng/docker-compose.yml up -d
+   docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d searxng
    ```
 2. Start the Search API dev server:
    ```bash

@@ -16,11 +16,11 @@ export interface SearchExecutionResult {
 
 export class SearchService {
   private readonly client: SearxngClient;
-  private readonly maxResults: number;
+  private readonly maxResults: number | undefined;
 
   constructor(options: SearchServiceOptions = {}) {
     this.client = options.client ?? new SearxngClient();
-    this.maxResults = options.maxResults ?? getSearchConfig().maxResults;
+    this.maxResults = options.maxResults;
   }
 
   async search(rawQuery: unknown): Promise<SearchExecutionResult> {
@@ -34,6 +34,7 @@ export class SearchService {
     const query = rawQuery.trim();
     const rawData = await this.client.search(query);
 
+    const maxResults = this.maxResults ?? getSearchConfig().maxResults;
     const normalizedResults: NormalizedSearchResult[] = [];
     const seenUrls = new Set<string>();
 
@@ -59,7 +60,7 @@ export class SearchService {
         score,
       });
 
-      if (normalizedResults.length >= this.maxResults) {
+      if (normalizedResults.length >= maxResults) {
         break;
       }
     }
