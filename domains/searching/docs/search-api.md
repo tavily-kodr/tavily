@@ -104,7 +104,7 @@ The Search API is implemented using the following technologies:
 - **Turborepo (2.11.7)**: Monorepo build and test orchestration pipeline.
 - **SearXNG**: Privacy-focused metasearch engine running via Docker.
 - **Google Search Engine**: Upstream search engine accessed through SearXNG (`engines=google`).
-- **Docker & Docker Compose**: Containerized execution of SearXNG and Valkey (Redis-compatible cache).
+- **Docker & Docker Compose**: Containerized execution of SearXNG and the Searching service.
 
 ---
 
@@ -143,7 +143,7 @@ MAX_RESULTS=10
 
 ### 3. Start Local Infrastructure via Docker
 
-Start local SearXNG and Valkey caching services or the entire local stack using Docker Compose:
+Start local SearXNG or the entire local stack using Docker Compose:
 
 ```bash
 docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d
@@ -194,7 +194,7 @@ The local Docker setup is consolidated under `infrastructure/local/searching/doc
    docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d
    ```
 
-   To start specifically the SearXNG and Valkey services:
+   To start specifically the SearXNG service:
 
    ```bash
    docker compose -f infrastructure/local/searching/docker/docker-compose.yml up -d searxng
@@ -537,7 +537,7 @@ tavily/
     │       └── docker/
     │           ├── .env.example                  # Local Docker environment variable template
     │           ├── Dockerfile                    # Single local Searching container Dockerfile (dev)
-    │           ├── docker-compose.yml            # Local Docker Compose (Searching + SearXNG + Valkey)
+    │           ├── docker-compose.yml            # Local Docker Compose (Searching + SearXNG)
     │           └── searxng/
     │               └── settings.yml              # Local SearXNG engine configuration
     │
