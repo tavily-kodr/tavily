@@ -1,19 +1,20 @@
 use_default_settings:
   engines:
-    # Only fast engines; every other default engine (google, qwant, duckduckgo, startpage,
-    # reuters, translators, ...) is removed. google answers "access denied" and
-    # qwant a CAPTCHA from this host; duckduckgo timed out on every query. The news variants keep topic=news working
-    # with the same providers. yahoo is disabled upstream and enabled below so a
-    # query still reaches 20 results when one engine is suspended.
+    # Only engines that answer from this host within ~1s and together fill 20
+    # results from page 1. Measured 2026-10-09, one engine at a time:
+    #   bing ~0.4s/10, yep ~0.7s/20, duckduckgo web ~0.8-1.3s/10.
+    # Dropped: google, fireball, zapmeta ("access denied"); qwant, startpage,
+    # baidu, duckduckgo (CAPTCHA); mojeek, seznam, yacy (timeout); brave (429
+    # all day, and brave.news needs it); yahoo (1.1-1.7s for 7 results, frequent
+    # timeouts). A failed engine also marks the response partial, which
+    # shortens its cache TTL. The news variants keep topic=news working.
     keep_only:
       - bing
       - bing news
-      - brave
-      - brave.news
       - duckduckgo news
-      - mojeek
+      - duckduckgo web
       - wikipedia
-      - yahoo
+      - yep
 
 general:
   instance_name: "tavily-clone-searxng"
@@ -57,24 +58,19 @@ outgoing: # outgoing controll external search engines like google bing .
 
 engines: # which engines you want to explore
   # All active engines use the same weight so no single engine dominates the merged ranking.
+  # bing, duckduckgo web and yep are disabled upstream, so they are enabled here.
   - name: bing
     disabled: false
     weight: 1.0
 
-  - name: brave
+  - name: duckduckgo web
+    disabled: false
+    weight: 1.0
+
+  - name: yep
     disabled: false
     weight: 1.0
 
   - name: wikipedia
-    disabled: false
-    weight: 1.0
-
-  - name: yahoo
-    disabled: false
-    weight: 1.0
-
-  # mojeek may be marked inactive upstream in this SearXNG version (it needs a
-  # Proof-of-Work captcha); if so this entry has no effect until upstream re-activates it.
-  - name: mojeek
     disabled: false
     weight: 1.0

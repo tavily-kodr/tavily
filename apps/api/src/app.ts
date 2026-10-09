@@ -9,7 +9,6 @@ import {
   configureSearxngClient,
   DEFAULT_CACHE_MAX_ENTRIES,
   DEFAULT_CACHE_TTL_MS,
-  DEFAULT_EAGER_PAGES,
   DEFAULT_MAX_CONCURRENT_REQUESTS,
   DEFAULT_PAGING_BUDGET_MS,
   MAX_EAGER_PAGES,
@@ -115,7 +114,7 @@ const searchQuerySchema = z.object({
 const apiEnvSchema = z.object({
   SEARXNG_URL: z.string().url().default("http://localhost:8080"),
   // Comma-separated engines enabled in SearXNG; used to detect a total outage.
-  SEARXNG_ENGINES: z.string().default("bing,brave,mojeek,wikipedia,yahoo"),
+  SEARXNG_ENGINES: z.string().default("bing,duckduckgo web,wikipedia,yep"),
   SEARCH_CACHE_TTL_MS: z.coerce.number().int().positive().default(DEFAULT_CACHE_TTL_MS),
   // Bounds memory: each entry holds at most 20 ranked results.
   SEARCH_CACHE_MAX_ENTRIES: z.coerce.number().int().positive().default(DEFAULT_CACHE_MAX_ENTRIES),
@@ -128,13 +127,11 @@ const apiEnvSchema = z.object({
   // Most SearXNG pages one search may fetch; extra pages only when needed.
   SEARXNG_MAX_PAGES: z.coerce.number().int().min(1).max(MAX_PAGES).default(MAX_PAGES),
   // Pages fetched together with page 1 when max_results needs more than one
-  // page; 0 fetches them one round trip at a time after page 1.
-  SEARXNG_EAGER_PAGES: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .max(MAX_EAGER_PAGES)
-    .default(DEFAULT_EAGER_PAGES),
+  // page; 0 fetches them one round trip at a time after page 1. With the
+  // configured engines page 1 already fills 20 results, so extra pages would
+  // only take SearXNG request slots; set to DEFAULT_EAGER_PAGES for sparse
+  // engine sets.
+  SEARXNG_EAGER_PAGES: z.coerce.number().int().min(0).max(MAX_EAGER_PAGES).default(0),
   // Optional pages start only if they can finish within this many ms of the
   // search start; sparse queries (domain filters) return what they have then.
   SEARXNG_PAGING_BUDGET_MS: z.coerce
