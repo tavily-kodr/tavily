@@ -248,6 +248,43 @@ importers:
         specifier: ^8.71.0
         version: 8.71.0(eslint@10.12.0(jiti@2.7.0))(typescript@6.0.3)
 
+  apps/api:
+    dependencies:
+      '@tavily/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@tavily/errors':
+        specifier: workspace:*
+        version: link:../../packages/errors
+      '@tavily/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
+      '@tavily/scraping':
+        specifier: workspace:*
+        version: link:../../domains/scraping
+      '@tavily/searching':
+        specifier: workspace:*
+        version: link:../../domains/searching
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
+      '@types/node':
+        specifier: ^26.6.4
+        version: 26.6.4
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   domains/scraping:
     dependencies:
       '@fastify/cors':
