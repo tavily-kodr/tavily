@@ -42,13 +42,12 @@ export class SearchController {
       }
 
       const rawQuery = queryCandidate.trim();
-      logger.info("Search started", { query: rawQuery });
+      logger.info("Search started");
 
       const { query, results } = await this.searchService.search(rawQuery);
       const took_ms = elapsedMs(startTime);
 
       logger.info("Search completed", {
-        query,
         resultsCount: results.length,
         took_ms,
       });

@@ -3,7 +3,7 @@ name: tavily-searching-local
 services:
   searxng:
     container_name: tavily-searxng-core
-    image: docker.io/searxng/searxng:${SEARXNG_VERSION:-latest}
+    image: docker.io/searxng/searxng:${SEARXNG_VERSION:-2026.9.18-0d6910ae5}
     restart: unless-stopped
     ports:
       - "${SEARXNG_PORT:-8080}:8080"
