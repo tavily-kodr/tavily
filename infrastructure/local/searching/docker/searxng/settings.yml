@@ -1,0 +1,76 @@
+use_default_settings:
+  engines:
+    # Only engines that answer from this host within ~1s and together fill 20
+    # results from page 1. Measured 2026-10-09, one engine at a time:
+    #   bing ~0.4s/10, yep ~0.7s/20, duckduckgo web ~0.8-1.3s/10.
+    # Dropped: google, fireball, zapmeta ("access denied"); qwant, startpage,
+    # baidu, duckduckgo (CAPTCHA); mojeek, seznam, yacy (timeout); brave (429
+    # all day, and brave.news needs it); yahoo (1.1-1.7s for 7 results, frequent
+    # timeouts). A failed engine also marks the response partial, which
+    # shortens its cache TTL. The news variants keep topic=news working.
+    keep_only:
+      - bing
+      - bing news
+      - duckduckgo news
+      - duckduckgo web
+      - wikipedia
+      - yep
+
+general:
+  instance_name: "tavily-clone-searxng"
+  donation_url: false
+  privacypolicy_url: false
+  contact_url: false
+  enable_metrics: false
+
+server:
+  # secret_key is intentionally not set here; provide it via the SEARXNG_SECRET env var.
+  # The limiter (and the bot detection it runs) stays off: SearXNG is bound to
+  # loopback / the internal network and only the API calls it.
+  limiter: false
+  image_proxy: false
+
+search:
+  autocomplete: "" # An empty value means you're not configuring an autocomplete service here.
+  default_lang: "en-US"
+  formats:
+    - html # return html search page
+    - json # return structred json
+  # Shorter than the upstream defaults for CAPTCHA / Cloudflare / reCAPTCHA
+  # (1h, 1 day, 15 days, 7 days) so a blocked engine comes back sooner.
+  # Access-denied and 429 keep the upstream 180s; going lower raises ban risk.
+  suspended_times:
+    SearxEngineAccessDenied: 180
+    SearxEngineCaptcha: 1800
+    SearxEngineTooManyRequests: 180
+    cf_SearxEngineCaptcha: 3600
+    cf_SearxEngineAccessDenied: 3600
+    recaptcha_SearxEngineCaptcha: 3600
+
+outgoing: # outgoing controll external search engines like google bing .
+  # SearXNG answers with whatever engines delivered by the deadline instead of
+  # waiting for the slowest one.
+  request_timeout: 3.0
+  max_request_timeout: 4.0
+  pool_connections: 100 #Number of connection pools maintained.
+  pool_maxsize: 20 # max connection in pool
+  enable_http2: true # HTTP/2 can improve network efficiency because multiple requests can be handled over a connection.
+
+engines: # which engines you want to explore
+  # All active engines use the same weight so no single engine dominates the merged ranking.
+  # bing, duckduckgo web and yep are disabled upstream, so they are enabled here.
+  - name: bing
+    disabled: false
+    weight: 1.0
+
+  - name: duckduckgo web
+    disabled: false
+    weight: 1.0
+
+  - name: yep
+    disabled: false
+    weight: 1.0
+
+  - name: wikipedia
+    disabled: false
+    weight: 1.0
