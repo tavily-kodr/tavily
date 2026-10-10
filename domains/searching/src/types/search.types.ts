@@ -3,6 +3,18 @@ export interface NormalizedSearchResult {
   url: string;
   content: string;
   score: number;
+  rawContent?: string | undefined;
+  snippet?: string | undefined;
+  canonicalUrl?: string | undefined;
+  sourceUrl?: string | undefined;
+}
+
+export interface SearchQueryOptions {
+  crawl?: boolean | undefined;
+  crawlDepth?: number | undefined;
+  maxResults?: number | undefined;
+  includeRawContent?: boolean | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 export interface SearchResponseData {
@@ -54,4 +66,9 @@ export interface SearchConfig {
   maxResults: number;
   port: number;
   nodeEnv: string;
+  crawlCandidates: boolean;
+  maxCrawlResults: number;
+  crawlConcurrency: number;
+  crawlTimeoutMs: number;
+  respectRobotsTxt: boolean;
 }

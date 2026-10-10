@@ -24,25 +24,38 @@ Client
 Route (search.routes.ts)
   ▼
 Controller (search.controller.ts)
-  │ [Starts high-resolution timer: performance.now()]
+  │ [Starts high-resolution timer: performance.now(), sets up AbortController]
   ▼
 Search Service (search.service.ts)
-  ▼
-SearXNG Client (searxng.client.ts)
-  │ (HTTP GET <SEARXNG_URL>/search?q=<query>&format=json&engines=google)
-  ▼
-SearXNG Instance (Docker container on port 8080)
-  ▼
-Google Search Engine
-  ▼
-Raw JSON Response
-  ▼
-Search Service (Normalization, URL validation, Deduplication, Result Capping)
+  │
+  ├─► SearXNG Client (searxng.client.ts)
+  │     │ (HTTP GET <SEARXNG_URL>/search?q=<query>&format=json&engines=google)
+  │     ▼
+  │   SearXNG Instance (Docker container on port 8080) -> Google Search Engine
+  │     ▼
+  │   Raw Candidate URLs & Snippets
+  │
+  ├─► Candidate Filtering & Pre-Validation
+  │     - Protocol check (http/https only)
+  │     - SSRF pre-check (blocks localhost, link-local, loopback, private IPs)
+  │     - Canonical URL deduplication
+  │     - Bounds candidate list to MAX_RESULTS
+  │
+  ├─► Bounded Candidate Crawling & Extraction (domains/scraping)
+  │     - Top candidates fetched with bounded concurrency (CRAWL_CONCURRENCY)
+  │     - Overall crawl timeout (CRAWL_TIMEOUT_MS)
+  │     - HttpFetcher enforces strict SSRF DNS pinning and redirect guards
+  │     - ScraperService / CrawlerService cleans HTML into semantic text
+  │     - Partial failures gracefully fall back to SearXNG snippet (never fails entire search)
+  │
+  ├─► Post-Crawl Deduplication & Relevance Scoring
+  │     - Eliminates duplicate canonical/redirect targets and duplicate content
+  │     - Computes transparent deterministic relevance score baseline
   ▼
 Controller
   │ [Computes took_ms = elapsedMs(startTime)]
   ▼
-Client Response (JSON)
+Client Response (JSON with cleaned page content, snippets, canonical URLs)
 ```
 
 ### What the API Returns
@@ -52,7 +65,15 @@ The API returns a predictable JSON object containing:
 - `success`: Boolean indicator (`true` on success, `false` on failure).
 - `data`:
   - `query`: The sanitized query string.
-  - `results`: An array of at most `MAX_RESULTS` normalized organic result objects (`title`, `url`, `content`, `score`).
+  - `results`: An array of at most `MAX_RESULTS` normalized organic result objects:
+    - `title`: Extracted page title (or fallback to search engine title).
+    - `url`: Canonical or final page destination URL.
+    - `content`: Cleaned, readable page text extracted by the scraping engine (or fallback to snippet on partial failure).
+    - `score`: Relevance score (preserving upstream score or computing deterministic keyword/rank baseline).
+    - `snippet`: Original search engine snippet.
+    - `canonicalUrl`: Canonical URL declared by the target page.
+    - `sourceUrl`: Original candidate URL from search results.
+    - `rawContent` (optional): Raw extracted text when `include_raw_content: true` is requested.
   - `took_ms`: The measured end-to-end server execution time in integer milliseconds.
 - `error` (on failure): A structured error object containing `code` and `message`.
 
@@ -137,8 +158,13 @@ SEARCH_TIMEOUT_MS=5000
 PORT=3000
 NODE_ENV=development
 
-# Search Results
+# Search Results & Candidate Crawling
 MAX_RESULTS=10
+CRAWL_CANDIDATES=true
+MAX_CRAWL_RESULTS=5
+CRAWL_CONCURRENCY=3
+CRAWL_TIMEOUT_MS=4000
+RESPECT_ROBOTS_TXT=false
 ```
 
 ### 3. Start Local Infrastructure via Docker
@@ -309,11 +335,23 @@ Search via JSON payload containing a `query` string property.
 
 - `Content-Type: application/json`
 
-**Request Body:**
+**Request Body Options:**
+
+| Field                 | Type      | Default | Description                                                                                       |
+| :-------------------- | :-------- | :------ | :------------------------------------------------------------------------------------------------ |
+| `query`               | `string`  | _req_   | The search term or query string to search for.                                                    |
+| `crawl`               | `boolean` | `true`  | Whether to crawl candidate URLs and extract clean page content. Set to `false` for fast snippets. |
+| `max_results`         | `number`  | `10`    | Maximum number of search results to return (capped by server config).                             |
+| `crawl_depth`         | `number`  | `0`     | Link depth to traverse per candidate (0 = single page scrape, 1+ = multi-page crawl).             |
+| `include_raw_content` | `boolean` | `false` | When true, includes uncleaned HTML/markdown in the `rawContent` property.                         |
+
+**Request Body Example:**
 
 ```json
 {
-  "query": "best places to visit in India"
+  "query": "best places to visit in India",
+  "crawl": true,
+  "max_results": 5
 }
 ```
 
@@ -322,12 +360,12 @@ Search via JSON payload containing a `query` string property.
 ```bash
 curl -X POST "http://127.0.0.1:3000/search" \
   -H "Content-Type: application/json" \
-  -d '{"query": "best places to visit in India"}'
+  -d '{"query": "best places to visit in India", "crawl": true}'
 ```
 
 ### 2. Path-Style `/search/<query>` (GET or POST)
 
-Search directly by providing the query in the URL path (e.g. `http://localhost:3000/search/sheiryans`). Ideal for browser navigation, links, and quick CLI queries.
+Search directly by providing the query in the URL path (e.g. `http://localhost:3000/search/sheiryans`). Ideal for browser navigation, links, and quick CLI queries. Supports query parameters `?crawl=false&max_results=5`.
 
 **Request Examples:**
 
@@ -335,13 +373,16 @@ Search directly by providing the query in the URL path (e.g. `http://localhost:3
 # In browser or via GET:
 curl "http://127.0.0.1:3000/search/sheiryans"
 
+# Or with query parameters:
+curl "http://127.0.0.1:3000/search/sheiryans?crawl=false"
+
 # Or via POST:
 curl -X POST "http://127.0.0.1:3000/search/sheiryans"
 ```
 
 ---
 
-### Example Successful Response (HTTP 200)
+### Example Successful Response (HTTP 200 with Crawled Enrichment)
 
 ```json
 {
@@ -350,25 +391,25 @@ curl -X POST "http://127.0.0.1:3000/search/sheiryans"
     "query": "apnacollege",
     "results": [
       {
-        "title": "Apna College",
+        "title": "Apna College - India's Most Loved Coding Community",
         "url": "https://www.apnacollege.in/",
-        "content": "India's Most Loved Coding Community ❤️ · SigmaX : AI Powered 10X Software Engineer. Start your placement preparation today!",
-        "score": 1
+        "content": "Learn coding easily with Apna College courses. SigmaX: AI-Powered Software Engineering. Complete Placement Preparation with DSA, Web Development, and AI tools.",
+        "score": 1,
+        "snippet": "India's Most Loved Coding Community ❤️ · SigmaX : AI Powered 10X Software Engineer. Start your placement preparation today!",
+        "canonicalUrl": "https://www.apnacollege.in/",
+        "sourceUrl": "https://www.apnacollege.in/"
       },
       {
-        "title": "Courses - Apna College",
-        "url": "https://www.apnacollege.in/all-courses",
-        "content": "Latest Batches (Ongoing) · Alpha Plus 6.0 (C++) · Alpha Plus Batch 6.0 · Delta 8.0 · Prime: AI/ML Batch · Sigma 10",
-        "score": 0.5
-      },
-      {
-        "title": "Apna College - YouTube",
+        "title": "Apna College Official - YouTube",
         "url": "https://www.youtube.com/@ApnaCollegeOfficial",
-        "content": "Apna College · Complete Placement Preparation: AI Full Stack Web Development + DSA + Aptitude | New SigmaX",
-        "score": 0.3333333333333333
+        "content": "Official YouTube Channel of Apna College. Complete placement preparation courses and free tutorials for programmers.",
+        "score": 0.88,
+        "snippet": "Official YouTube Channel of Apna College.",
+        "canonicalUrl": "https://www.youtube.com/@ApnaCollegeOfficial",
+        "sourceUrl": "https://www.youtube.com/@ApnaCollegeOfficial"
       }
     ],
-    "took_ms": 477
+    "took_ms": 312
   }
 }
 ```

@@ -17,6 +17,15 @@ export class SearchController {
     res: Response<SearchSuccessResponse | SearchErrorResponse>,
   ): Promise<Response> => {
     const startTime = startTimer();
+    const abortController = new AbortController();
+
+    const onClose = () => {
+      if (!res.writableEnded) {
+        abortController.abort();
+      }
+    };
+    res.on("close", onClose);
+
     let queryCandidate: string | undefined;
 
     // 1. Request body { "query": "..." }
@@ -42,9 +51,43 @@ export class SearchController {
       }
 
       const rawQuery = queryCandidate.trim();
-      logger.info("Search started");
+      logger.info("Search started", { query: rawQuery });
 
-      const { query, results } = await this.searchService.search(rawQuery);
+      // Parse optional search and crawl parameters
+      const bodyObj = (req.body && typeof req.body === "object" ? req.body : {}) as Record<
+        string,
+        unknown
+      >;
+
+      let crawlOption: boolean | undefined;
+      if (typeof bodyObj.crawl === "boolean") {
+        crawlOption = bodyObj.crawl;
+      } else if (req.query?.crawl !== undefined) {
+        crawlOption = req.query.crawl !== "false" && req.query.crawl !== "0";
+      }
+
+      const rawMaxResults = bodyObj.max_results ?? bodyObj.maxResults ?? req.query?.max_results;
+      const maxResults =
+        typeof rawMaxResults === "number" && rawMaxResults > 0
+          ? Math.floor(rawMaxResults)
+          : undefined;
+
+      const rawCrawlDepth = bodyObj.crawl_depth ?? bodyObj.crawlDepth;
+      const crawlDepth =
+        typeof rawCrawlDepth === "number" && rawCrawlDepth >= 0
+          ? Math.floor(rawCrawlDepth)
+          : undefined;
+
+      const includeRawContent =
+        bodyObj.include_raw_content === true || bodyObj.includeRawContent === true;
+
+      const { query, results } = await this.searchService.search(rawQuery, {
+        crawl: crawlOption,
+        maxResults,
+        crawlDepth,
+        includeRawContent,
+        signal: abortController.signal,
+      });
       const took_ms = elapsedMs(startTime);
 
       logger.info("Search completed", {
@@ -92,6 +135,8 @@ export class SearchController {
           message: "An unexpected error occurred",
         },
       });
+    } finally {
+      res.off("close", onClose);
     }
   };
 }

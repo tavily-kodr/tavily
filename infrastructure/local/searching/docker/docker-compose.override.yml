@@ -1,0 +1,10 @@
+services:
+  searching:
+    build:
+      context: ../../../..
+      dockerfile: infrastructure/local/searching/docker/Dockerfile.local
+    environment:
+      - CRAWL_CONCURRENCY=5
+    volumes:
+      - ../../../../domains/scraping/src:/app/domains/scraping/src
+      - ../../../../domains/scraping/test:/app/domains/scraping/test

@@ -9,6 +9,34 @@ import { SearxngClient } from "../src/clients/searxng.client.js";
 import { AppError } from "@tavily/errors";
 import type { SearxngRawResponse } from "../src/types/search.types.js";
 
+import { HttpFetcher, type HttpRequestContext, type HttpTransportFn } from "@tavily/scraping";
+
+function createMockTransport(pagesMap: Record<string, string>): HttpTransportFn {
+  return async (ctx: HttpRequestContext) => {
+    const html = pagesMap[ctx.url];
+    if (html === undefined) {
+      return {
+        requestedUrl: ctx.url,
+        finalUrl: ctx.url,
+        statusCode: 404,
+        contentType: "text/html",
+        headers: { "content-type": "text/html" },
+        body: "<h1>404 Not Found</h1>",
+        resolvedIp: ctx.pinnedIp,
+      };
+    }
+    return {
+      requestedUrl: ctx.url,
+      finalUrl: ctx.url,
+      statusCode: 200,
+      contentType: "text/html",
+      headers: { "content-type": "text/html" },
+      body: html,
+      resolvedIp: ctx.pinnedIp,
+    };
+  };
+}
+
 describe("Search API Endpoints", () => {
   let server: Server;
   let baseUrl: string;
@@ -57,7 +85,17 @@ describe("Search API Endpoints", () => {
       },
     } as unknown as SearxngClient;
 
-    const service = new SearchService({ client: mockClient });
+    const pagesMap: Record<string, string> = {
+      "https://www.apnacollege.in/": `
+        <html><head><title>Apna College</title></head><body><h1>Learn coding easily</h1><p>Coding courses</p></body></html>
+      `,
+      "https://www.youtube.com/@ApnaCollegeOfficial": `
+        <html><head><title>Apna College YouTube</title></head><body><h1>Official YouTube Channel</h1></body></html>
+      `,
+    };
+
+    const mockFetcher = new HttpFetcher(createMockTransport(pagesMap));
+    const service = new SearchService({ client: mockClient, fetcher: mockFetcher });
     const controller = new SearchController(service);
     const router = createSearchRouter(controller);
     const app = createSearchApp(router);
@@ -186,5 +224,46 @@ describe("Search API Endpoints", () => {
     const body = await res.json();
     assert.equal(body.success, false);
     assert.equal(body.error.code, "INVALID_SEARCH_RESPONSE");
+  });
+
+  it("supports crawl: false to bypass candidate page scraping", async () => {
+    const res = await fetch(`${baseUrl}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "apnacollege", crawl: false }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.data.results.length, 2);
+    // Snippet content from SearXNG is preserved directly
+    assert.equal(body.data.results[0].content, "Learn coding easily with Apna College courses.");
+  });
+
+  it("supports include_raw_content: true to return raw HTML text", async () => {
+    const res = await fetch(`${baseUrl}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "apnacollege", include_raw_content: true }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(typeof body.data.results[0].rawContent, "string");
+  });
+
+  it("caps results according to max_results in POST payload", async () => {
+    const res = await fetch(`${baseUrl}/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "apnacollege", max_results: 1 }),
+    });
+    assert.equal(res.status, 200);
+
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.data.results.length, 1);
   });
 });
