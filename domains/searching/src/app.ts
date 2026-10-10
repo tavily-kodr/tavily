@@ -1,8 +1,12 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { AppError } from "@tavily/errors";
+import { crawlRouter } from "@tavily/scraping";
 import { searchRouter } from "./routes/search.routes.js";
 
-export function createSearchApp(customSearchRouter = searchRouter): Express {
+export function createSearchApp(
+  customSearchRouter = searchRouter,
+  customCrawlRouter = crawlRouter,
+): Express {
   const app = express();
 
   app.use(express.json());
@@ -12,6 +16,7 @@ export function createSearchApp(customSearchRouter = searchRouter): Express {
   });
 
   app.use("/search", customSearchRouter);
+  app.use("/crawl", customCrawlRouter);
 
   // Catch-all 404 handler
   app.use((_req: Request, res: Response) => {

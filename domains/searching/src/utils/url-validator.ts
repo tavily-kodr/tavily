@@ -1,32 +1,22 @@
-export function isValidUrl(value: unknown): value is string {
-  if (typeof value !== "string" || !value.trim()) {
-    return false;
-  }
+import net from "node:net";
+import {
+  isValidUrlSyntax,
+  canonicalizeUrl as scrapingCanonicalizeUrl,
+  isBlockedHostname as scrapingIsBlockedHostname,
+  checkIpAddress,
+} from "@tavily/scraping";
 
-  try {
-    const parsed = new URL(value.trim());
-    const protocol = parsed.protocol.toLowerCase();
-    if (protocol !== "http:" && protocol !== "https:") {
-      return false;
-    }
-    return Boolean(parsed.hostname && parsed.hostname.length > 0);
-  } catch {
-    return false;
-  }
+export function isValidUrl(value: unknown): value is string {
+  return isValidUrlSyntax(value);
 }
 
 export function canonicalizeUrl(urlStr: string): string {
-  try {
-    const parsed = new URL(urlStr.trim());
-    // Lowercase the protocol and host
-    parsed.protocol = parsed.protocol.toLowerCase();
-    parsed.host = parsed.host.toLowerCase();
+  return scrapingCanonicalizeUrl(urlStr);
+}
 
-    // Strip trailing slash if present (e.g. /docs/ -> /docs)
-    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
-
-    return parsed.toString();
-  } catch {
-    return urlStr.trim();
+export function isBlockedHostname(hostname: string): boolean {
+  if (net.isIP(hostname)) {
+    return checkIpAddress(hostname).isBlocked;
   }
+  return scrapingIsBlockedHostname(hostname).blocked;
 }
