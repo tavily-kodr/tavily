@@ -28,20 +28,27 @@ export const MapRequestSchema = z.object({
 export type MapRequest = z.infer<typeof MapRequestSchema>;
 export type MapRequestInput = z.input<typeof MapRequestSchema>;
 
-export const CrawlRequestSchema = z.object({
-  url: z.string().url("Must be a valid URL"),
-  limit: z.number().int().min(1).max(1000).default(50),
-  maxDepth: z.number().int().min(1).max(10).default(2),
-  maxBreadth: z.number().int().min(1).max(500).default(50),
-  crawlTimeoutMs: z.number().int().positive().default(60000),
-  selectPaths: z.array(z.string()).default([]),
-  excludePaths: z.array(z.string()).default([]),
-  selectDomains: z.array(z.string()).default([]),
-  excludeDomains: z.array(z.string()).default([]),
-  allowExternal: z.boolean().default(false),
-  ignoreRobots: z.boolean().default(false),
-  enablePlaywrightFallback: z.boolean().default(false),
-});
+export const CrawlRequestSchema = z
+  .object({
+    url: z.string().url("Must be a valid URL").optional(),
+    urls: z.array(z.string().url("Must be a valid URL")).min(1).optional(),
+    limit: z.number().int().min(1).max(1000).default(5),
+    maxDepth: z.number().int().min(1).max(50).default(5),
+    maxBreadth: z.number().int().min(1).max(500).default(50),
+    crawlTimeoutMs: z.number().int().positive().default(60000),
+    selectPaths: z.array(z.string()).default([]),
+    excludePaths: z.array(z.string()).default([]),
+    selectDomains: z.array(z.string()).default([]),
+    excludeDomains: z.array(z.string()).default([]),
+    allowExternal: z.boolean().default(false),
+    multiDomain: z.boolean().default(false),
+    ignoreRobots: z.boolean().default(false),
+    enablePlaywrightFallback: z.boolean().default(false),
+  })
+  .refine((data) => Boolean(data.url || (data.urls && data.urls.length > 0)), {
+    message: "Either 'url' or 'urls' (min 1 URL) must be provided",
+    path: ["url"],
+  });
 
 export type CrawlRequest = z.infer<typeof CrawlRequestSchema>;
 export type CrawlRequestInput = z.input<typeof CrawlRequestSchema>;

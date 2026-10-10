@@ -29,9 +29,9 @@ export class RobotsManager {
     const robotsUrl = `${origin}/robots.txt`;
     try {
       const response = await this.fetcher.fetch(robotsUrl, {
-        timeoutMs: 5000,
+        timeoutMs: 250,
         maxBytes: 512 * 1024, // 512KB max
-        maxRetries: 1,
+        maxRetries: 0,
       });
 
       const parsed = this.parseRobotsTxt(response.body, userAgent);

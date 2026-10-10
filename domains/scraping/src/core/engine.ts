@@ -11,7 +11,7 @@ import { normalizeUrl } from "../url/normalizer.js";
 import { matchesPathRules, matchesDomainRules } from "../url/filter.js";
 import { SearchServiceClient } from "../clients/search.client.js";
 import type { CrawlStorage } from "../storage/interface.js";
-import { InMemoryStorage } from "../storage/memory.storage.js";
+import { FileSystemStorage } from "../storage/file.storage.js";
 import {
   ExtractRequestSchema,
   MapRequestSchema,
@@ -39,7 +39,7 @@ export interface CrawlerEngineOptions {
 export class CrawlerEngine {
   private readonly fetcher: HttpFetcher;
   private readonly extractor: HtmlExtractor;
-  private readonly storage: CrawlStorage;
+  public readonly storage: CrawlStorage;
   private readonly robots: RobotsManager;
   private readonly sitemaps: SitemapParser;
   private readonly scheduler: CrawlScheduler;
@@ -48,13 +48,13 @@ export class CrawlerEngine {
   constructor(options: CrawlerEngineOptions = {}) {
     this.fetcher = options.fetcher ?? new HttpFetcher();
     this.extractor = options.extractor ?? new HtmlExtractor();
-    this.storage = options.storage ?? new InMemoryStorage();
+    this.storage = options.storage ?? new FileSystemStorage("./storage");
     this.robots = new RobotsManager(this.fetcher);
     this.sitemaps = new SitemapParser(this.fetcher);
     this.searchClient = options.searchClient ?? new SearchServiceClient();
     this.scheduler = new CrawlScheduler({
-      globalConcurrency: options.globalConcurrency ?? 8,
-      perDomainConcurrency: options.perDomainConcurrency ?? 2,
+      globalConcurrency: options.globalConcurrency ?? 16,
+      perDomainConcurrency: options.perDomainConcurrency ?? 8,
     });
   }
 
@@ -221,14 +221,31 @@ export class CrawlerEngine {
     const request = CrawlRequestSchema.parse(input);
     const startTime = performance.now();
     const crawlId = `crawl_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
-    const rootUrl = normalizeUrl(request.url);
-    const rootHostname = new URL(rootUrl).hostname.toLowerCase();
+
+    const seedUrls: string[] = [];
+    if (request.urls && request.urls.length > 0) {
+      seedUrls.push(...request.urls.map((u) => normalizeUrl(u)));
+    } else if (request.url) {
+      seedUrls.push(normalizeUrl(request.url));
+    }
+
+    const rootHostnames = new Set<string>();
+    for (const u of seedUrls) {
+      try {
+        rootHostnames.add(new URL(u).hostname.toLowerCase());
+      } catch {
+        // ignore
+      }
+    }
 
     logger.info("Starting crawler run", {
       crawlId,
-      rootUrl,
+      seedUrlsCount: seedUrls.length,
+      domains: Array.from(rootHostnames),
       limit: request.limit,
       maxDepth: request.maxDepth,
+      allowExternal: request.allowExternal,
+      multiDomain: request.multiDomain,
     });
 
     const frontier = new InMemoryFrontier({
@@ -242,138 +259,248 @@ export class CrawlerEngine {
     let totalFailed = 0;
     let totalSkipped = 0;
 
-    // Seed frontier
-    frontier.enqueue({ url: rootUrl, normalizedUrl: rootUrl, depth: 0 });
-    deduplicator.markUrlSeen(rootUrl);
-
-    // Seed with sitemaps if robots allows
-    if (!request.ignoreRobots) {
-      try {
-        const sitemaps = await this.robots.getSitemaps(rootUrl);
-        for (const smUrl of sitemaps) {
-          const entries = await this.sitemaps.parseSitemap(smUrl);
-          for (const entry of entries) {
-            if (!deduplicator.isUrlSeen(entry) && frontier.size() < request.limit * 2) {
-              deduplicator.markUrlSeen(entry);
-              frontier.enqueue({ url: entry, normalizedUrl: entry, depth: 1 });
-            }
-          }
-        }
-      } catch {
-        // Continue if sitemaps fail
-      }
+    // Seed frontier with all seed URLs across domains
+    for (const sUrl of seedUrls) {
+      frontier.enqueue({ url: sUrl, normalizedUrl: sUrl, depth: 0 });
+      deduplicator.markUrlSeen(sUrl);
     }
 
-    while (!frontier.isEmpty() && pages.length < request.limit) {
-      // Check timeout
-      if (performance.now() - startTime > request.crawlTimeoutMs) {
-        logger.warn("Crawl timeout exceeded, finalizing results", {
-          crawlId,
-          durationMs: performance.now() - startTime,
-        });
-        break;
-      }
-
-      const item = frontier.dequeue();
-      if (!item) break;
-
-      // Check robots.txt
-      if (!request.ignoreRobots) {
-        const isAllowed = await this.robots.isAllowed(item.normalizedUrl);
-        if (!isAllowed) {
-          totalSkipped++;
-          continue;
-        }
-      }
-
-      await this.scheduler.schedule(item.normalizedUrl, async () => {
-        if (pages.length >= request.limit) return;
-
-        const pageStartTime = performance.now();
+    // Seed with sitemaps only if frontier has not reached request.limit and this is a single-domain direct crawl
+    if (
+      !request.ignoreRobots &&
+      frontier.size() < request.limit &&
+      !request.multiDomain &&
+      !request.urls
+    ) {
+      for (const sUrl of seedUrls) {
+        if (frontier.size() >= request.limit) break;
         try {
-          const fetchRes = await this.fetcher.fetch(item.normalizedUrl);
-          totalBytes += fetchRes.byteLength;
-
-          const extractRes = await this.extractor.extract(fetchRes.body, fetchRes.url, {
-            fallbackToPlaywright: request.enablePlaywrightFallback,
-          });
-
-          // Content hash deduplication check
-          const isDuplicateContent = deduplicator.isContentSeen(extractRes.metadata.contentHash);
-          deduplicator.markContentSeen(extractRes.metadata.contentHash);
-
-          if (isDuplicateContent) {
-            totalSkipped++;
-          }
-
-          const pageTookMs = Math.max(0, Math.round(performance.now() - pageStartTime));
-          const pageRecord: PageRecord = {
-            url: item.url,
-            normalizedUrl: item.normalizedUrl,
-            state: "COMPLETED",
-            depth: item.depth,
-            statusCode: fetchRes.statusCode,
-            metadata: extractRes.metadata,
-            markdown: extractRes.markdown,
-            outboundLinks: extractRes.outboundLinks,
-            tookMs: pageTookMs,
-            timestamp: new Date().toISOString(),
-          };
-
-          pages.push(pageRecord);
-          await this.storage.savePage(crawlId, pageRecord, pages.length);
-
-          // Link Discovery for subsequent BFS levels
-          if (item.depth < request.maxDepth && pages.length < request.limit) {
-            for (const link of extractRes.outboundLinks) {
-              const linkHost = new URL(link).hostname.toLowerCase();
-              const isInternal = linkHost === rootHostname || linkHost.endsWith(`.${rootHostname}`);
-
-              const domainAllowed =
-                (request.allowExternal || isInternal) &&
-                matchesDomainRules(linkHost, request.selectDomains, request.excludeDomains);
-
-              const pathAllowed = matchesPathRules(
-                new URL(link).pathname,
-                request.selectPaths,
-                request.excludePaths,
-              );
-
-              if (domainAllowed && pathAllowed && !deduplicator.isUrlSeen(link)) {
-                deduplicator.markUrlSeen(link);
-                frontier.enqueue({ url: link, normalizedUrl: link, depth: item.depth + 1 });
+          const sitemaps = await this.robots.getSitemaps(sUrl);
+          for (const smUrl of sitemaps.slice(0, 1)) {
+            if (frontier.size() >= request.limit) break;
+            const entries = await this.sitemaps.parseSitemap(smUrl);
+            for (const entry of entries) {
+              if (frontier.size() >= request.limit) break;
+              if (!deduplicator.isUrlSeen(entry)) {
+                deduplicator.markUrlSeen(entry);
+                frontier.enqueue({ url: entry, normalizedUrl: entry, depth: 1 });
               }
             }
           }
-        } catch (err: unknown) {
-          totalFailed++;
-          const pageTookMs = Math.max(0, Math.round(performance.now() - pageStartTime));
-          const failedRecord: PageRecord = {
-            url: item.url,
-            normalizedUrl: item.normalizedUrl,
-            state: "PERMANENT_FAILURE",
-            depth: item.depth,
-            metadata: {
-              title: "Error",
-              contentHash: "",
-              byteSize: 0,
-              isSpa: false,
-              usedPlaywright: false,
-            },
-            markdown: "",
-            outboundLinks: [],
-            error: {
-              code: (err as { code?: string })?.code ?? "CRAWL_FETCH_ERROR",
-              message: err instanceof Error ? err.message : String(err),
-            },
-            tookMs: pageTookMs,
-            timestamp: new Date().toISOString(),
-          };
-          pages.push(failedRecord);
-          await this.storage.savePage(crawlId, failedRecord, pages.length);
+        } catch {
+          // Continue if sitemaps fail
         }
-      });
+      }
     }
+
+    const crawlAbortController = new AbortController();
+
+    // Pre-warm robots cache concurrently across all seed URLs (bounded to 250ms)
+    if (!request.ignoreRobots && seedUrls.length > 0) {
+      const robotsPromise = Promise.allSettled(seedUrls.map((sUrl) => this.robots.isAllowed(sUrl)));
+      await Promise.race([robotsPromise, new Promise((r) => setTimeout(r, 250))]);
+    }
+
+    // Parallel worker pool:
+    // Concurrency dynamically sized to request.limit (up to 16 concurrent workers)
+    const concurrency = Math.min(Math.max(request.limit, 12), 16);
+    let activeWorkers = 0;
+    let stopRequested = false;
+    const waitQueue: Array<() => void> = [];
+
+    const notifyWorkers = () => {
+      while (waitQueue.length > 0) {
+        const wake = waitQueue.shift();
+        if (wake) wake();
+      }
+    };
+
+    const waitForTask = (): Promise<void> => {
+      return new Promise((resolve) => {
+        let done = false;
+        const timeoutId = setTimeout(() => {
+          if (!done) {
+            done = true;
+            const idx = waitQueue.indexOf(wakeCb);
+            if (idx !== -1) waitQueue.splice(idx, 1);
+            resolve();
+          }
+        }, 400);
+
+        const wakeCb = () => {
+          if (!done) {
+            done = true;
+            clearTimeout(timeoutId);
+            resolve();
+          }
+        };
+        waitQueue.push(wakeCb);
+      });
+    };
+
+    const runWorker = async (workerId: number): Promise<void> => {
+      while (!stopRequested) {
+        if (pages.length >= request.limit) {
+          stopRequested = true;
+          crawlAbortController.abort();
+          notifyWorkers();
+          break;
+        }
+
+        if (performance.now() - startTime > request.crawlTimeoutMs) {
+          logger.warn("Crawl timeout exceeded in worker", { crawlId, workerId });
+          stopRequested = true;
+          crawlAbortController.abort();
+          notifyWorkers();
+          break;
+        }
+
+        const item = frontier.dequeue();
+        if (!item) {
+          if (activeWorkers === 0) {
+            stopRequested = true;
+            crawlAbortController.abort();
+            notifyWorkers();
+            break;
+          }
+          await waitForTask();
+          continue;
+        }
+
+        activeWorkers++;
+        try {
+          if (!request.ignoreRobots) {
+            const isAllowed = await this.robots.isAllowed(item.normalizedUrl);
+            if (!isAllowed) {
+              totalSkipped++;
+              continue;
+            }
+          }
+
+          await this.scheduler.schedule(item.normalizedUrl, async () => {
+            if (pages.length >= request.limit || stopRequested) return;
+
+            const pageStartTime = performance.now();
+            try {
+              const fetchRes = await this.fetcher.fetch(item.normalizedUrl, {
+                timeoutMs: 1400,
+                maxRetries: 0,
+                signal: crawlAbortController.signal,
+              });
+              totalBytes += fetchRes.byteLength;
+
+              const extractRes = await this.extractor.extract(fetchRes.body, fetchRes.url, {
+                fallbackToPlaywright: request.enablePlaywrightFallback,
+              });
+
+              const isDuplicate = deduplicator.isContentSeen(extractRes.metadata.contentHash);
+              deduplicator.markContentSeen(extractRes.metadata.contentHash);
+
+              if (isDuplicate) {
+                totalSkipped++;
+              }
+
+              const pageTookMs = Math.max(0, Math.round(performance.now() - pageStartTime));
+              const pageRecord: PageRecord = {
+                url: item.url,
+                normalizedUrl: item.normalizedUrl,
+                state: "COMPLETED",
+                depth: item.depth,
+                statusCode: fetchRes.statusCode,
+                metadata: extractRes.metadata,
+                markdown: extractRes.markdown,
+                outboundLinks: extractRes.outboundLinks,
+                tookMs: pageTookMs,
+                timestamp: new Date().toISOString(),
+              };
+
+              if (pages.length < request.limit) {
+                pages.push(pageRecord);
+                if (pages.length >= request.limit) {
+                  stopRequested = true;
+                  crawlAbortController.abort();
+                  notifyWorkers();
+                }
+              }
+
+              if (item.depth < request.maxDepth && pages.length < request.limit) {
+                const allowMultiDomain = request.allowExternal || request.multiDomain;
+                for (const link of extractRes.outboundLinks) {
+                  if (frontier.size() >= request.limit * 4) break;
+                  let linkHost = "";
+                  let linkPath = "";
+                  try {
+                    const parsed = new URL(link);
+                    linkHost = parsed.hostname.toLowerCase();
+                    linkPath = parsed.pathname;
+                  } catch {
+                    continue;
+                  }
+
+                  const isInternal =
+                    rootHostnames.has(linkHost) ||
+                    Array.from(rootHostnames).some((h) => linkHost.endsWith(`.${h}`));
+
+                  const domainAllowed =
+                    (allowMultiDomain || isInternal) &&
+                    matchesDomainRules(linkHost, request.selectDomains, request.excludeDomains);
+
+                  const pathAllowed = matchesPathRules(
+                    linkPath,
+                    request.selectPaths,
+                    request.excludePaths,
+                  );
+
+                  if (domainAllowed && pathAllowed && !deduplicator.isUrlSeen(link)) {
+                    deduplicator.markUrlSeen(link);
+                    frontier.enqueue({ url: link, normalizedUrl: link, depth: item.depth + 1 });
+                  }
+                }
+              }
+            } catch (err: unknown) {
+              if (crawlAbortController.signal.aborted || pages.length >= request.limit) {
+                return;
+              }
+              totalFailed++;
+              const pageTookMs = Math.max(0, Math.round(performance.now() - pageStartTime));
+              const failedRecord: PageRecord = {
+                url: item.url,
+                normalizedUrl: item.normalizedUrl,
+                state: "PERMANENT_FAILURE",
+                depth: item.depth,
+                metadata: {
+                  title: "Error",
+                  contentHash: "",
+                  byteSize: 0,
+                  isSpa: false,
+                  usedPlaywright: false,
+                },
+                markdown: "",
+                outboundLinks: [],
+                error: {
+                  code: (err as { code?: string })?.code ?? "CRAWL_FETCH_ERROR",
+                  message: err instanceof Error ? err.message : String(err),
+                },
+                tookMs: pageTookMs,
+                timestamp: new Date().toISOString(),
+              };
+              if (pages.length < request.limit) {
+                pages.push(failedRecord);
+              }
+            }
+          });
+        } finally {
+          activeWorkers--;
+          if (pages.length >= request.limit || (frontier.isEmpty() && activeWorkers === 0)) {
+            stopRequested = true;
+          }
+          notifyWorkers();
+        }
+      }
+    };
+
+    const workerTasks = Array.from({ length: concurrency }, (_, i) => runWorker(i));
+    await Promise.all(workerTasks);
 
     const durationMs = Math.max(0, Math.round(performance.now() - startTime));
     const stats: CrawlStats = {
@@ -385,15 +512,32 @@ export class CrawlerEngine {
       durationMs,
     };
 
+    const paths =
+      this.storage instanceof FileSystemStorage ? this.storage.getStoragePaths(crawlId) : undefined;
+
     const crawlResponse: CrawlResponse = {
       success: true,
       crawlId,
       stats,
       pages,
+      storageInfo: paths
+        ? {
+            rootDir: paths.rootDir,
+            crawlDir: paths.crawlDir,
+            manifestPath: paths.manifestPath,
+            combinedMarkdownPath: paths.combinedMarkdownPath,
+            latestMarkdownPath: paths.latestMarkdownPath,
+            files: ["latest_crawl.md", "crawl.md"],
+          }
+        : undefined,
     };
 
     await this.storage.saveCrawl(crawlResponse);
-    logger.info("Crawl completed successfully", { crawlId, stats });
+    logger.info("Crawl completed successfully with parallel worker pool", {
+      crawlId,
+      concurrency,
+      stats,
+    });
 
     return crawlResponse;
   }

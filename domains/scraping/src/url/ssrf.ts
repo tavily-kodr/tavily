@@ -2,6 +2,11 @@ import dns from "node:dns/promises";
 import net from "node:net";
 import { SsrfBlockedError, InvalidUrlError } from "../types/error.types.js";
 
+const dnsCache = new Map<
+  string,
+  { addresses: Array<{ address: string; family: number }>; expires: number }
+>();
+
 /**
  * Converts an IPv4 string to a 32-bit unsigned integer.
  */
@@ -151,15 +156,22 @@ export async function validateSsrf(url: string, allowLocalNetwork = false): Prom
     return;
   }
 
-  // Asynchronous DNS resolution for all IP records
+  // Fast in-memory DNS cache to avoid repeated libuv threadpool lookups
+  const cached = dnsCache.get(hostname);
   let addresses: Array<{ address: string; family: number }>;
-  try {
-    addresses = await dns.lookup(hostname, { all: true });
-  } catch (err: unknown) {
-    throw new InvalidUrlError(
-      url,
-      `DNS lookup failed for '${hostname}': ${err instanceof Error ? err.message : String(err)}`,
-    );
+  if (cached && cached.expires > Date.now()) {
+    addresses = cached.addresses;
+  } else {
+    // Asynchronous DNS resolution for all IP records
+    try {
+      addresses = await dns.lookup(hostname, { all: true });
+      dnsCache.set(hostname, { addresses, expires: Date.now() + 300_000 });
+    } catch (err: unknown) {
+      throw new InvalidUrlError(
+        url,
+        `DNS lookup failed for '${hostname}': ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   if (!addresses || addresses.length === 0) {

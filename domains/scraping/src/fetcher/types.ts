@@ -6,6 +6,7 @@ export interface FetchOptions {
   headers?: Record<string, string>;
   maxRetries?: number;
   retryDelayMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface FetchResponse {

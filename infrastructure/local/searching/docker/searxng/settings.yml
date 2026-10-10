@@ -1,8 +1,10 @@
 use_default_settings:
   engines:
     keep_only:
+      - duckduckgo
+      - wikipedia
+      - brave
       - google
-      - google cse
 
 server:
   secret_key: "${SEARXNG_SECRET:-dev_secret_key_tavily_searxng_must_be_32_chars_long_1234}"

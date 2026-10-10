@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import type { CrawlResponse, PageRecord } from "../types/output.types.js";
 import type { CrawlStorage } from "./interface.js";
@@ -38,16 +39,27 @@ export function buildFrontmatter(page: PageRecord): string {
 }
 
 export class FileSystemStorage implements CrawlStorage {
-  private readonly rootDir: string;
+  public readonly rootDir: string;
 
   constructor(baseDir = "./storage") {
-    this.rootDir = path.resolve(process.cwd(), baseDir);
+    let current = process.cwd();
+    let resolvedRoot = current;
+    for (let i = 0; i < 4; i++) {
+      if (fsSync.existsSync(path.resolve(current, "pnpm-workspace.yaml"))) {
+        resolvedRoot = current;
+        break;
+      }
+      const parent = path.resolve(current, "..");
+      if (parent === current) break;
+      current = parent;
+    }
+    this.rootDir = path.resolve(resolvedRoot, baseDir);
   }
 
   /**
    * Securely resolves a crawl folder path, throwing an error if path traversal is detected.
    */
-  private getSecureCrawlDir(crawlId: string): string {
+  public getSecureCrawlDir(crawlId: string): string {
     const safeId = sanitizePathComponent(crawlId);
     const resolvedPath = path.resolve(this.rootDir, "crawls", safeId);
     const safeRoot = path.resolve(this.rootDir, "crawls");
@@ -60,11 +72,22 @@ export class FileSystemStorage implements CrawlStorage {
     return resolvedPath;
   }
 
+  public getStoragePaths(crawlId: string) {
+    const crawlDir = this.getSecureCrawlDir(crawlId);
+    return {
+      rootDir: this.rootDir,
+      crawlDir,
+      manifestPath: path.join(crawlDir, "manifest.json"),
+      combinedMarkdownPath: path.join(crawlDir, "crawl.md"),
+      latestMarkdownPath: path.join(this.rootDir, "latest_crawl.md"),
+    };
+  }
+
   public async saveCrawl(crawl: CrawlResponse): Promise<void> {
     const crawlDir = this.getSecureCrawlDir(crawl.crawlId);
     await fs.mkdir(crawlDir, { recursive: true });
 
-    // 1. Write manifest.json
+    // 1. Write manifest.json with full pages array
     const manifestPath = path.join(crawlDir, "manifest.json");
     const manifestData = {
       crawlId: crawl.crawlId,
@@ -72,15 +95,42 @@ export class FileSystemStorage implements CrawlStorage {
       stats: crawl.stats,
       totalPages: crawl.pages.length,
       createdAt: new Date().toISOString(),
+      pages: crawl.pages,
     };
     await fs.writeFile(manifestPath, JSON.stringify(manifestData, null, 2), "utf-8");
 
-    // 2. Write individual page files (page-###.json and page-###.md)
-    for (let i = 0; i < crawl.pages.length; i++) {
-      const page = crawl.pages[i];
-      if (page) {
-        await this.savePage(crawl.crawlId, page, i + 1);
-      }
+    // 2. Write single consolidated Markdown containing all scraped & crawled data
+    const combinedMd = [
+      `# Unified Crawl Data Archive`,
+      `- **Crawl ID:** \`${crawl.crawlId}\``,
+      `- **Date:** ${new Date().toISOString()}`,
+      `- **Total Pages:** ${crawl.pages.length}`,
+      `- **Crawled Successfully:** ${crawl.stats.totalCrawled}`,
+      `- **Duration:** ${crawl.stats.durationMs}ms`,
+      "",
+      "---",
+      "",
+      ...crawl.pages.map((p, idx) => {
+        const lines = [
+          `## Page ${idx + 1}: ${p.metadata?.title || p.url}`,
+          `- **Source URL:** [${p.url}](${p.url})`,
+          `- **Status Code:** ${p.statusCode} | **Depth:** ${p.depth}`,
+        ];
+        if (p.metadata?.description) {
+          lines.push(`- **Description:** ${p.metadata.description}`);
+        }
+        lines.push("", p.markdown || "*(No markdown body extracted)*", "", "---", "");
+        return lines.join("\n");
+      }),
+    ].join("\n");
+
+    const combinedMdPath = path.join(crawlDir, "crawl.md");
+    await fs.writeFile(combinedMdPath, combinedMd, "utf-8");
+
+    try {
+      await fs.writeFile(path.join(this.rootDir, "latest_crawl.md"), combinedMd, "utf-8");
+    } catch {
+      // ignore
     }
   }
 
@@ -131,6 +181,15 @@ export class FileSystemStorage implements CrawlStorage {
   public async listPages(crawlId: string): Promise<PageRecord[]> {
     const crawlDir = this.getSecureCrawlDir(crawlId);
     try {
+      const manifestPath = path.join(crawlDir, "manifest.json");
+      if (fsSync.existsSync(manifestPath)) {
+        const manifestRaw = await fs.readFile(manifestPath, "utf-8");
+        const parsed = JSON.parse(manifestRaw);
+        if (Array.isArray(parsed.pages)) {
+          return parsed.pages;
+        }
+      }
+
       const files = await fs.readdir(crawlDir);
       const jsonFiles = files.filter((f) => f.startsWith("page-") && f.endsWith(".json")).sort();
 

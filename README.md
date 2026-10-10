@@ -2,6 +2,8 @@
 
 Tavily is a scalable, domain-driven monorepo designed to support search, scraping, realtime systems, and security-related capabilities.
 
+> **📖 Full API & Team Contribution Guide:** See [API & Contribution Guide](docs/API_AND_CONTRIBUTION_GUIDE.md) for complete JSON contracts, parallel crawler architecture, and team workflows.
+
 ## Architecture
 
 ```text
@@ -75,13 +77,94 @@ The `infrastructure/` directory contains integrations with external systems and 
 
 Infrastructure concerns should remain isolated from domain business logic.
 
-## Development
+## Quick Start (New User Setup)
 
-### Install Dependencies
+### 1. Prerequisites
+
+- **Node.js**: v20.x or v22.x+
+- **pnpm**: `npm install -g pnpm@12.9.1`
+- **Docker Desktop**: Running locally (for SearXNG meta-search provider)
+
+### 2. Install Dependencies
 
 ```bash
+# Install monorepo dependencies
 pnpm install
+
+# (Optional) Install Playwright browser for JS-rendered SPA scraping
+npx playwright install chromium
 ```
+
+### 3. Start Search Engine Infrastructure (Docker)
+
+SearXNG provides local privacy-first search aggregation over Google and Bing on port `8080`.
+
+```bash
+# Start SearXNG container in the background
+pnpm docker:up
+
+# Check container status
+pnpm docker:ps
+
+# View SearXNG logs
+pnpm docker:logs
+
+# Stop Docker when finished
+pnpm docker:down
+```
+
+> **Note:** If Docker is not running, the system automatically falls back to an organic web search resolver, ensuring search requests never hard-fail.
+
+### 4. Start the Unified API Orchestrator
+
+The unified orchestrator runs at **`http://localhost:4000`**, bridging searching and high-concurrency scraping into a single pipeline.
+
+```bash
+pnpm dev
+```
+
+### 5. Test Search & Scraping
+
+- **Search & Parallel Crawl (5 URLs, depth 5):**
+  ```bash
+  curl "http://localhost:4000/?q=LLM&crawl=true&max_url=5&max_depth=5"
+  ```
+- **Search only:**
+  ```bash
+  curl "http://localhost:4000/search?query=machine+learning"
+  ```
+- **Crawl & Extract direct URL:**
+  ```bash
+  curl -X POST http://localhost:4000/crawl \
+    -H "Content-Type: application/json" \
+    -d '{"url":"https://example.com","limit":3}'
+  ```
+- **View latest generated Markdown file:**
+  ```bash
+  curl http://localhost:4000/latest_crawl.md
+  ```
+
+---
+
+## Development Commands
+
+### Monorepo Services
+
+```bash
+# Start Unified API Orchestrator (Port 4000)
+pnpm dev
+
+# Start Searching domain standalone (Port 3000)
+pnpm dev:search
+
+# Start Scraping domain standalone (Port 3001)
+pnpm dev:scrape
+
+# Run CLI scraper directly
+pnpm scrape:cli --url https://example.com
+```
+
+### Code Quality & Testing
 
 ### Run Lint
 

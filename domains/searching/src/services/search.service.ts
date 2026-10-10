@@ -23,7 +23,10 @@ export class SearchService {
     this.maxResults = options.maxResults;
   }
 
-  async search(rawQuery: unknown): Promise<SearchExecutionResult> {
+  async search(
+    rawQuery: unknown,
+    options?: { maxResults?: number },
+  ): Promise<SearchExecutionResult> {
     if (typeof rawQuery !== "string" || !rawQuery.trim()) {
       throw new AppError("Search query is required", {
         code: "INVALID_QUERY",
@@ -32,9 +35,9 @@ export class SearchService {
     }
 
     const query = rawQuery.trim();
-    const rawData = await this.client.search(query);
+    const maxResults = options?.maxResults ?? this.maxResults ?? getSearchConfig().maxResults;
+    const rawData = await this.client.search(query, { limit: maxResults });
 
-    const maxResults = this.maxResults ?? getSearchConfig().maxResults;
     const normalizedResults: NormalizedSearchResult[] = [];
     const seenUrls = new Set<string>();
 

@@ -1,4 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import path from "node:path";
+import fs from "node:fs";
 import { ZodError } from "zod";
 import { AppError } from "@tavily/errors";
 import { logger } from "@tavily/logger";
@@ -9,6 +11,20 @@ export function createApiApp(customRouter = apiRouter): Express {
 
   app.use(express.json());
 
+  // Determine repository root and storage path
+  let currentDir = process.cwd();
+  let workspaceRoot = currentDir;
+  for (let i = 0; i < 4; i++) {
+    if (fs.existsSync(path.resolve(currentDir, "pnpm-workspace.yaml"))) {
+      workspaceRoot = currentDir;
+      break;
+    }
+    const parent = path.resolve(currentDir, "..");
+    if (parent === currentDir) break;
+    currentDir = parent;
+  }
+  const storageDir = path.resolve(workspaceRoot, "storage");
+
   // Health and readiness probes
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({ status: "ok" });
@@ -18,8 +34,23 @@ export function createApiApp(customRouter = apiRouter): Express {
     res.status(200).json({ status: "ready" });
   });
 
-  // Main API Router: /api/search
+  // Serve static files from storage directory (e.g. /storage/latest_crawl.md, /storage/crawls/...)
+  app.use("/storage", express.static(storageDir));
+
+  // Direct endpoint to read or download the latest crawl markdown file
+  app.get("/latest_crawl.md", (_req: Request, res: Response) => {
+    const latestPath = path.join(storageDir, "latest_crawl.md");
+    if (fs.existsSync(latestPath)) {
+      res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+      res.sendFile(latestPath);
+    } else {
+      res.status(404).send("# No crawl performed yet\nExecute a crawl to generate latest_crawl.md");
+    }
+  });
+
+  // Main API Router: /api/... and root /...
   app.use("/api", customRouter);
+  app.use("/", customRouter);
 
   // Catch-all 404 handler
   app.use((_req: Request, res: Response) => {

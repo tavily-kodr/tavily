@@ -64,11 +64,21 @@ export interface CrawlStats {
   durationMs: number;
 }
 
+export interface StorageInfo {
+  rootDir: string;
+  crawlDir: string;
+  manifestPath: string;
+  combinedMarkdownPath: string;
+  latestMarkdownPath: string;
+  files: string[];
+}
+
 export interface CrawlResponse {
   success: boolean;
   crawlId: string;
   stats: CrawlStats;
   pages: PageRecord[];
+  storageInfo?: StorageInfo | undefined;
 }
 
 export interface MapResponse {

@@ -133,15 +133,19 @@ export class HttpFetcher {
         controller.abort();
       }, timeoutMs);
 
+      const requestSignal = options.signal
+        ? AbortSignal.any([options.signal, controller.signal])
+        : controller.signal;
+
       try {
         const response = await request(currentUrl, {
           dispatcher: this.agent,
           method: "GET",
           headers: requestHeaders,
-          signal: controller.signal,
+          signal: requestSignal,
+          headersTimeout: timeoutMs,
+          bodyTimeout: timeoutMs,
         });
-
-        clearTimeout(timer);
 
         const statusCode = response.statusCode;
         const headers: Record<string, string> = {};
@@ -153,6 +157,7 @@ export class HttpFetcher {
 
         // 2. Handle 3xx Redirects
         if (REDIRECT_STATUS_CODES.has(statusCode)) {
+          clearTimeout(timer);
           const locationHeader = headers["location"];
           if (!locationHeader) {
             throw new HttpError(currentUrl, statusCode, "Redirect missing Location header");
@@ -184,6 +189,7 @@ export class HttpFetcher {
 
         // 3. Handle Rate Limiting (429)
         if (statusCode === 429) {
+          clearTimeout(timer);
           const retryAfterMs = parseRetryAfter(headers["retry-after"]);
           const retryAfterSec = retryAfterMs ? Math.ceil(retryAfterMs / 1000) : undefined;
           await response.body.dump();
@@ -192,6 +198,7 @@ export class HttpFetcher {
 
         // 4. Handle other error statuses
         if (statusCode >= 400) {
+          clearTimeout(timer);
           await response.body.dump();
           const retryable = isRetryableStatus(statusCode);
           throw new HttpError(currentUrl, statusCode, `HTTP ${statusCode}`, retryable);
@@ -206,12 +213,15 @@ export class HttpFetcher {
           totalBytes += bufferChunk.length;
 
           if (totalBytes > maxBytes) {
+            clearTimeout(timer);
             await response.body.destroy();
             throw new ResponseTooLargeError(currentUrl, totalBytes, maxBytes);
           }
 
           chunks.push(bufferChunk);
         }
+
+        clearTimeout(timer);
 
         let bodyBuffer = Buffer.concat(chunks);
         const contentEncoding = headers["content-encoding"]?.toLowerCase().trim();

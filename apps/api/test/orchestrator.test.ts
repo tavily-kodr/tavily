@@ -99,4 +99,80 @@ describe("Unified API Orchestrator", () => {
     assert.ok(response.timings.scrapeTookMs >= 0);
     assert.ok(response.timings.totalTookMs >= 0);
   });
+
+  test("GET /benchmark?format=json runs and returns benchmark metrics", async () => {
+    const server = app.listen(0);
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/benchmark?url=https://example.com&combinations=2:1&format=json`,
+      );
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as {
+        success: boolean;
+        data: {
+          targetUrl: string;
+          results: Array<{ maxUrl: number; maxDepth: number; durationMs: number }>;
+        };
+      };
+      assert.equal(data.success, true);
+      assert.equal(data.data.results.length, 1);
+      assert.equal(data.data.results[0]?.maxUrl, 2);
+      assert.equal(data.data.results[0]?.maxDepth, 1);
+      assert.ok(data.data.results[0]?.durationMs >= 0);
+    } finally {
+      server.close();
+    }
+  });
+
+  test("GET / with crawl=true parameters parses max_url and max_depth defaults correctly", async () => {
+    const server = app.listen(0);
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/?q=https://example.com&crawl=true&max_url=2&max_depth=1`,
+      );
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as {
+        success: boolean;
+        data: { seedUrl: string; crawl: { stats: { totalCrawled: number } } };
+      };
+      assert.equal(data.success, true);
+      assert.equal(data.data.seedUrl, "https://example.com");
+      assert.ok(data.data.crawl.stats.totalCrawled >= 1);
+    } finally {
+      server.close();
+    }
+  });
+
+  test("GET /benchmark with multiple comma-separated URLs tests across distinct domains", async () => {
+    const server = app.listen(0);
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/benchmark?url=https://example.com,https://example.org&combinations=2:1&format=json`,
+      );
+      assert.equal(res.status, 200);
+      const data = (await res.json()) as {
+        success: boolean;
+        data: {
+          targetUrls: string[];
+          allDomainsCrawled: string[];
+          results: Array<{ domainsCrawledCount: number }>;
+        };
+      };
+      assert.equal(data.success, true);
+      assert.equal(data.data.targetUrls.length, 2);
+      assert.ok(data.data.allDomainsCrawled.includes("example.com"));
+      assert.ok(data.data.allDomainsCrawled.includes("example.org"));
+    } finally {
+      server.close();
+    }
+  });
 });

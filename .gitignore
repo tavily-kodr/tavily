@@ -32,3 +32,6 @@ Thumbs.db
 
 # Output
 output/
+storage/
+**/storage/
+scratch/
