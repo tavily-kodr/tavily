@@ -12,6 +12,7 @@ services:
       - SEARXNG_SECRET=${SEARXNG_SECRET:-dev_secret_key_tavily_searxng_must_be_32_chars_long_1234}
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml:ro
       - searxng-data:/var/cache/searxng
 
   searching:
